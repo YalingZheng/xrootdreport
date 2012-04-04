@@ -96,7 +96,7 @@ def FilterCondorJobs():
     print str(PercentageExitCode0Normal) + "%"
   
     # Compute the walltime percentage of overflow jobs with exit code 0
-    querystring = "SELECT SUM(WallDuration) from JobUsageRecord JUR JOIN Resource RESC on ((JUR.dbid=RESC.dbid) and (RESC.description=\"ExitCode\")) where EndTime>\"20" + EarliestEndTime + "\" and EndTime<\"20" + LatestEndTime + "\"" + " and HostDescription like '%-overflow' and ResourceType=\"BatchPilot\";";
+    querystring = "SELECT SUM(WallDuration) from JobUsageRecord where EndTime>\"20" + EarliestEndTime + "\" and EndTime<\"20" + LatestEndTime + "\"" + " and HostDescription like '%-overflow' and ResourceType=\"BatchPilot\";";
     print querystring
     cursor.execute(querystring)
     row = cursor.fetchone()
@@ -144,12 +144,13 @@ def FilterCondorJobs():
 
     # Compute the efficiency of overflow jobs
 
-    querystring = "SELECT SUM(CpuUserDuration+CpuSystemDuration) from JobUsageRecord where EndTime>\"20" + EarliestEndTime + "\" and EndTime<\"20" + LatestEndTime + "\"" + " and HostDescription like '%-overflow' and ResourceType=\"BatchPilot\";" 
+    querystring = "SELECT SUM(CpuUserDuration+CpuSystemDuration), SUM(WallDuration) from JobUsageRecord where EndTime>\"20" + EarliestEndTime + "\" and EndTime<\"20" + LatestEndTime + "\"" + " and HostDescription like '%-overflow' and ResourceType=\"BatchPilot\";" 
     print querystring
     cursor.execute(querystring)
     row = cursor.fetchone()
     UserAndSystemDurationOverflowJobs = float(row[0])
-    EfficiencyOverflowJobs = float(100* UserAndSystemDurationOverflowJobs)/SumWallDurationOverflowJobs;
+    WallDurationOverflowJobs = float(row[1])
+    EfficiencyOverflowJobs = float(100* UserAndSystemDurationOverflowJobs)/WallDurationOverflowJobs;
     print str(EfficiencyOverflowJobs)+"%"
 
     # Compute the efficiency of normal jobs
@@ -215,6 +216,7 @@ def FilterCondorJobs():
     cursor.execute(querystring)
     row = cursor.fetchone()
     WallDurationAllJobs4sites = float(row[0])
+    print str(WallDurationAllJobs4sites)
     PercentageWallDurationOverflowJobs4sites = float(100*WallDurationOverflowJobs4sites)/WallDurationAllJobs4sites
     print str(PercentageWallDurationOverflowJobs4sites)+"%"
 
@@ -243,7 +245,7 @@ def FilterCondorJobs():
     cursor.execute(querystring)
     row = cursor.fetchone()
     WallDurationOverflowJobsExitCode0foursites = int(row[0])
-    PercentageWallDurationOverflowJobsExitCode0foursites = float(100*WallDurationOverflowJobsExitCode0foursites)/WallDurationAllJobs4sites
+    PercentageWallDurationOverflowJobsExitCode0foursites = float(100*WallDurationOverflowJobsExitCode0foursites)/WallDurationOverflowJobs4sites
     print str(PercentageWallDurationOverflowJobsExitCode0foursites)+"%"
 
     # Compute the percentage of overflow jobs with exit code 84 in the 4 sites
@@ -271,17 +273,18 @@ def FilterCondorJobs():
     cursor.execute(querystring)
     row = cursor.fetchone()
     WallDurationOverflowJobsExitCode84foursites = int(row[0])
-    PercentageWallDurationOverflowJobsExitCode84foursites = float(100*WallDurationOverflowJobsExitCode84foursites)/WallDurationAllJobs4sites
+    PercentageWallDurationOverflowJobsExitCode84foursites = float(100*WallDurationOverflowJobsExitCode84foursites)/WallDurationOverflowJobs4sites
     print str(PercentageWallDurationOverflowJobsExitCode84foursites)+"%"
 
    
     # Compute the efficiency of overflow jobs in the 4 sites
 
-    querystring = "SELECT SUM(CpuUserDuration+CpuSystemDuration) from JobUsageRecord JUR JOIN JobUsageRecord_Meta JURM on (JUR.dbid = JURM.dbid) JOIN Probe P on (JURM.ProbeName = P.probename) JOIN Site S on (S.siteid = P.siteid) where EndTime>\"20" + EarliestEndTime + "\" and EndTime<\"20" + LatestEndTime + "\"" + " and HostDescription like '%-overflow'  and ResourceType=\"BatchPilot\" and (SiteName like '%Nebraska%' or SiteName like '%UCSD%' or SiteName like '%Purdue%' or SiteName like '%GLOW%');"
+    querystring = "SELECT SUM(CpuUserDuration+CpuSystemDuration),SUM(WallDuration) from JobUsageRecord JUR JOIN JobUsageRecord_Meta JURM on (JUR.dbid = JURM.dbid) JOIN Probe P on (JURM.ProbeName = P.probename) JOIN Site S on (S.siteid = P.siteid) where EndTime>\"20" + EarliestEndTime + "\" and EndTime<\"20" + LatestEndTime + "\"" + " and HostDescription like '%-overflow'  and ResourceType=\"BatchPilot\" and (SiteName like '%Nebraska%' or SiteName like '%UCSD%' or SiteName like '%Purdue%' or SiteName like '%GLOW%');"
     print querystring
     cursor.execute(querystring)
     row = cursor.fetchone()
     UserAndSystemDurationOverflowJobs4sites = float(row[0])
+    WallDurationOverflowJobs4sites = float(row[1])
     EfficiencyOverflowJobs4sites = float(100* UserAndSystemDurationOverflowJobs4sites)/WallDurationOverflowJobs4sites
     print str(EfficiencyOverflowJobs4sites)+"%"
 
@@ -350,6 +353,7 @@ def FilterCondorJobs():
     numrows = int(cursor.rowcount)
 
     #print "... the following are overflow jobs in 1 day... "
+    print "\nPossible Overflow Jobs with Exit Code 84 based on xrootd log\n"
     for i in range(numrows):
         row = cursor.fetchone()
         #print row[0], row[1], row[2], row[3], row[4], row[5]
