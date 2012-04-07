@@ -106,7 +106,10 @@ def QueryGratia(cursor, LatestEndTime, EarliestEndTime):
     #print NumNormalJobs 
 
     # Compute the percentage of number of overflow jobs OVER number of all jobs (in all sites)
-    PercentageOverflowJobs = float(NumOverflowJobs*100)/NumAllJobs;
+    if (NumAllJobs==0):
+        PercentageOverflowJobs = 0
+    else:
+        PercentageOverflowJobs = float(NumOverflowJobs*100)/NumAllJobs;
     #print str(PercentageOverflowJobs)+"%"
  
     # Compute Wall Time of overflow jobs (in all sites)
@@ -114,17 +117,26 @@ def QueryGratia(cursor, LatestEndTime, EarliestEndTime):
     #print querystring
     cursor.execute(querystring);
     row=cursor.fetchone();
-    SumWallDurationOverflowJobs = float(row[0])
+    if (NumOverflowJobs == 0):
+        SumWallDurationOverflowJobs = 0
+    else:
+        SumWallDurationOverflowJobs = float(row[0])
     
     # Compute Wall Time of all jobs (in all sites)
     querystring = "SELECT SUM(WallDuration) from JobUsageRecord where EndTime>=\"20" + EarliestEndTime + "\" and EndTime < \"20" + LatestEndTime + "\" and ResourceType=\"BatchPilot\";";
     #print querystring
     cursor.execute(querystring)
     row = cursor.fetchone()
-    SumWallDurationAllJobs = float(row[0])  
+    if (NumAllJobs == 0):
+        SumWallDurationAllJobs = 0
+    else:
+        SumWallDurationAllJobs = float(row[0])  
 
     # Compute the percentage of walltime of overflow jobs OVER walltime of all jobs (in all sites)
-    PercentageWallDurationOverflowJobs = float(SumWallDurationOverflowJobs*100)/SumWallDurationAllJobs;
+    if (SumWallDurationAllJobs==0):
+        PercentageWallDurationOverflowJobs = 0
+    else:
+        PercentageWallDurationOverflowJobs = float(SumWallDurationOverflowJobs*100)/SumWallDurationAllJobs;
     #print str(PercentageWallDurationOverflowJobs)+"%"
 
     # Compute the percentage of number of overflow jobs with exit code 0 OVER number of overflow jobs (in all sites)
@@ -133,7 +145,10 @@ def QueryGratia(cursor, LatestEndTime, EarliestEndTime):
     cursor.execute(querystring)
     row = cursor.fetchone()
     NumOverflowJobsExitCode0 = int(row[0])
-    PercentageExitCode0Overflow =float(100*NumOverflowJobsExitCode0)/ NumOverflowJobs
+    if (NumOverflowJobs==0):
+        PercentageExitCode0Overflow = 0
+    else:
+        PercentageExitCode0Overflow =float(100*NumOverflowJobsExitCode0)/ NumOverflowJobs
     #print str(PercentageExitCode0Overflow) + "%"
    
     # Compute the percentage of number normal jobs with exit code 0 OVER number of normal jobs (in all sites)
@@ -142,7 +157,10 @@ def QueryGratia(cursor, LatestEndTime, EarliestEndTime):
     cursor.execute(querystring)
     row = cursor.fetchone()
     NumNormalJobsExitCode0 = int(row[0])
-    PercentageExitCode0Normal = float(100*NumNormalJobsExitCode0)/NumNormalJobs
+    if (NumNormalJobs==0):
+        PercentageExitCode0Normal = 0
+    else:
+        PercentageExitCode0Normal = float(100*NumNormalJobsExitCode0)/NumNormalJobs
     #print str(PercentageExitCode0Normal) + "%"
     
     # compute walltime of overflow jobs (in all sites)
@@ -150,7 +168,10 @@ def QueryGratia(cursor, LatestEndTime, EarliestEndTime):
     #print querystring
     cursor.execute(querystring)
     row = cursor.fetchone()
-    WallDurationOverflowJobs = float(row[0])
+    if (NumOverflowJobs==0):
+        WallDurationOverflowJobs = 0
+    else:
+        WallDurationOverflowJobs = float(row[0])
     #print str(WallDurationOverflowJobs)
     
     # compute waltime of overflow jobs with exit code 0 (in all sites)
@@ -158,24 +179,19 @@ def QueryGratia(cursor, LatestEndTime, EarliestEndTime):
     #print querystring
     cursor.execute(querystring)
     row = cursor.fetchone()
-    WallDurationOverflowJobsExitCode0 = float(row[0])   
+    if (NumOverflowJobsExitCode0==0):
+        WallDurationOverflowJobsExitCode0 = 0
+    else:
+        WallDurationOverflowJobsExitCode0 = float(row[0])   
     #print str(WallDurationOverflowJobsExitCode0)
 
     # Compute the walltime percentage of walltime of overflow jobs with exit code 0 OVER walltime of overflow jobs (in all sites)
-    PercentageWallDurationOverflowJobsExitCode0 = float(100*WallDurationOverflowJobsExitCode0)/WallDurationOverflowJobs;
+    if (WallDurationOverflowJobs==0):
+        PercentageWallDurationOverflowJobsExitCode0 = 0
+    else:
+        PercentageWallDurationOverflowJobsExitCode0 = float(100*WallDurationOverflowJobsExitCode0)/WallDurationOverflowJobs;
     #print str(PercentageWallDurationOverflowJobsExitCode0)+"%"
 
-    # compute walltime of overflow jobs with exit code 84 (in all sites)
-    querystring = "SELECT SUM(WallDuration) from JobUsageRecord JUR JOIN Resource RESC on ((JUR.dbid=RESC.dbid) and (RESC.description=\"ExitCode\")) where EndTime>\"20" + EarliestEndTime + "\" and EndTime<\"20" + LatestEndTime + "\"" + " and RESC.value = 84 and HostDescription like '%-overflow' and ResourceType=\"BatchPilot\";"
-    #print querystring
-    cursor.execute(querystring)
-    row = cursor.fetchone()
-    WallDurationOverflowJobsExitCode84 = float(row[0])
-    #print str(WallDurationOverflowJobsExitCode84)
-
-    # Compute the percentage of walltime of overflow jobs with exit code 84 OVER walltime of overflow jobs (in all sites) 
-    PercentageWallDurationOverflowJobsExitCode84 = float(100*WallDurationOverflowJobsExitCode84)/WallDurationOverflowJobs;     
-    #print str(PercentageWallDurationOverflowJobsExitCode84)+"%"
 
     # compute number of overflow jobs with exit code 84 (in all sites)
     querystring = "SELECT COUNT(*) from JobUsageRecord JUR JOIN Resource RESC on ((JUR.dbid=RESC.dbid) and (RESC.description=\"ExitCode\")) where EndTime>\"20" + EarliestEndTime + "\" and EndTime<\"20" + LatestEndTime + "\"" + " and RESC.value=84 and HostDescription like '%-overflow' and ResourceType=\"BatchPilot\";"
@@ -185,8 +201,26 @@ def QueryGratia(cursor, LatestEndTime, EarliestEndTime):
     NumOverflowJobsExitCode84 = int(row[0])
 
     # Compute the percentage of number of overflow jobs with exit code 84 OVER number of overflow jobs (in all sites)
-    PercentageNumOverflowJobsExitCode84 = float(100*NumOverflowJobsExitCode84)/NumOverflowJobs;
+    if (NumOverflowJobs==0):
+        PercentageNumOverflowJobsExitCode84 = 0
+    else:
+        PercentageNumOverflowJobsExitCode84 = float(100*NumOverflowJobsExitCode84)/NumOverflowJobs;
     #print str(PercentageNumOverflowJobsExitCode84)+"%"
+
+    # compute walltime of overflow jobs with exit code 84 (in all sites)
+    querystring = "SELECT SUM(WallDuration) from JobUsageRecord JUR JOIN Resource RESC on ((JUR.dbid=RESC.dbid) and (RESC.description=\"ExitCode\")) where EndTime>\"20" + EarliestEndTime + "\" and EndTime<\"20" + LatestEndTime + "\"" + " and RESC.value = 84 and HostDescription like '%-overflow' and ResourceType=\"BatchPilot\";"
+    #print querystring
+    cursor.execute(querystring)
+    row = cursor.fetchone()
+    if (NumOverflowJobsExitCode84==0):
+        WallDurationOverflowJobsExitCode84 = 0
+    else:
+        WallDurationOverflowJobsExitCode84 = float(row[0])
+    #print str(WallDurationOverflowJobsExitCode84)
+
+    # Compute the percentage of walltime of overflow jobs with exit code 84 OVER walltime of overflow jobs (in all sites) 
+    PercentageWallDurationOverflowJobsExitCode84 = float(100*WallDurationOverflowJobsExitCode84)/WallDurationOverflowJobs;     
+    #print str(PercentageWallDurationOverflowJobsExitCode84)+"%"
 
     # compute number of normal jobs with exit code 84 (in all sites)
     querystring = "SELECT COUNT(*) from JobUsageRecord JUR JOIN Resource RESC on ((JUR.dbid=RESC.dbid) and (RESC.description=\"ExitCode\")) where EndTime>\"20" + EarliestEndTime + "\" and EndTime<\"20" + LatestEndTime + "\"" + " and RESC.value =84 and HostDescription NOT like '%-overflow' and ResourceType=\"BatchPilot\";"
@@ -196,7 +230,10 @@ def QueryGratia(cursor, LatestEndTime, EarliestEndTime):
     NumNormalJobsExitCode84 = int(row[0])
 
     # Compute the percentage of number of normal jobs with exit code 84 OVER number of normal jobs (in all sites) 
-    PercentageNumNormalJobsExitCode84 = float(100*NumNormalJobsExitCode84)/NumNormalJobs
+    if (NumNormalJobs==0):
+        PercentageNumNormalJobsExitCode84 = 0
+    else:
+        PercentageNumNormalJobsExitCode84 = float(100*NumNormalJobsExitCode84)/NumNormalJobs
     #print str(PercentageNumNormalJobsExitCode84)+"%"
 
     # Compute efficiency of overflow jobs, which is equal to (CpuUserDuration+CpuSystemDuration)/WallDuration (in all sites)
@@ -204,9 +241,16 @@ def QueryGratia(cursor, LatestEndTime, EarliestEndTime):
     #print querystring
     cursor.execute(querystring)
     row = cursor.fetchone()
-    UserAndSystemDurationOverflowJobs = float(row[0])
-    WallDurationOverflowJobs = float(row[1])
-    EfficiencyOverflowJobs = float(100* UserAndSystemDurationOverflowJobs)/WallDurationOverflowJobs;
+    if (NumOverflowJobs == 0):
+        UserAndSystemDurationOverflowJobs = 0
+        WallDurationOverflowJobs = 0
+    else:
+        UserAndSystemDurationOverflowJobs = float(row[0])
+        WallDurationOverflowJobs = float(row[1])
+    if (WallDurationOverflowJobs==0):
+        EfficiencyOverflowJobs = 0
+    else:
+        EfficiencyOverflowJobs = float(100* UserAndSystemDurationOverflowJobs)/WallDurationOverflowJobs;
     #print str(EfficiencyOverflowJobs)+"%"
 
     # Compute the efficiency of normal jobs (in all sites)
@@ -214,9 +258,16 @@ def QueryGratia(cursor, LatestEndTime, EarliestEndTime):
     #print querystring
     cursor.execute(querystring)
     row = cursor.fetchone()
-    UserAndSystemDurationNormalJobs = float(row[0])
-    WallDurationNormalJobs = float(row[1])
-    EfficiencyNormalJobs = float(100*UserAndSystemDurationNormalJobs)/WallDurationNormalJobs
+    if (NumNormalJobs == 0):
+        UserAndSystemDurationNormalJobs = 0
+        WallDurationNormalJobs = 0
+    else:
+        UserAndSystemDurationNormalJobs = float(row[0])
+        WallDurationNormalJobs = float(row[1])
+    if (WallDurationNormalJobs == 0):
+        EfficiencyNormalJobs = 0
+    else:
+        EfficiencyNormalJobs = float(100*UserAndSystemDurationNormalJobs)/WallDurationNormalJobs
     #print str(EfficiencyNormalJobs) + "%"
 
     # Compute the percentage of number of overflow jobs whose efficiency greater than 80% (in all sites)
@@ -225,7 +276,10 @@ def QueryGratia(cursor, LatestEndTime, EarliestEndTime):
     cursor.execute(querystring)
     row = cursor.fetchone()
     NumEfficiencyGT80percentOverflowJobs = int(row[0])
-    PercentageEfficiencyGT80percentOverflowJobs = float(100*NumEfficiencyGT80percentOverflowJobs)/NumOverflowJobs
+    if (NumOverflowJobs == 0):
+        PercentageEfficiencyGT80percentOverflowJobs = 0
+    else:
+        PercentageEfficiencyGT80percentOverflowJobs = float(100*NumEfficiencyGT80percentOverflowJobs)/NumOverflowJobs
     #print str(PercentageEfficiencyGT80percentOverflowJobs) + "%"
 
     # Compute the percentage of number of normal jobs whose efficiency greater than 80% (in all sites)
@@ -234,7 +288,10 @@ def QueryGratia(cursor, LatestEndTime, EarliestEndTime):
     cursor.execute(querystring)
     row = cursor.fetchone()
     NumEfficiencyGT80percentNormalJobs = int(row[0])
-    PercentageEfficiencyGT80percentNormalJobs = float(100*NumEfficiencyGT80percentNormalJobs)/NumNormalJobs
+    if (NumNormalJobs == 0):
+        PercentageEfficiencyGT80percentNormalJobs = 0
+    else:
+        PercentageEfficiencyGT80percentNormalJobs = float(100*NumEfficiencyGT80percentNormalJobs)/NumNormalJobs
     #print str(PercentageEfficiencyGT80percentNormalJobs) + "%"
  
     # Compute the number of overflow jobs that in %UCSD%, %Nebraska%, %GLOW%, and %Purdue%
@@ -254,7 +311,10 @@ def QueryGratia(cursor, LatestEndTime, EarliestEndTime):
     #print str(NumNormalJobs4sites)
   
     # Compute the percentage of number of overflow jobs OVER number of all jobs (in 4 sites)
-    PercentageOverflowJobs4sites = float(100*NumOverflowJobs4sites)/(NumOverflowJobs4sites + NumNormalJobs4sites);
+    if (NumOverflowJobs4sites + NumNormalJobs4sites == 0):
+        PercentageOverflowJobs4sites = 0
+    else:
+        PercentageOverflowJobs4sites = float(100*NumOverflowJobs4sites)/(NumOverflowJobs4sites + NumNormalJobs4sites);
     #print str(PercentageOverflowJobs4sites) + "%"
    
     # compute walltime of overflow jobs (in 4 sites)
@@ -262,7 +322,10 @@ def QueryGratia(cursor, LatestEndTime, EarliestEndTime):
     #print querystring
     cursor.execute(querystring)
     row = cursor.fetchone()
-    WallDurationOverflowJobs4sites = float(row[0])
+    if (NumOverflowJobs4sites==0):
+        WallDurationOverflowJobs4sites = 0
+    else:
+        WallDurationOverflowJobs4sites = float(row[0])
     #print str(WallDurationOverflowJobs4sites)
    
     # Compute walltime of all jobs (in 4 sites)
@@ -270,11 +333,17 @@ def QueryGratia(cursor, LatestEndTime, EarliestEndTime):
     #print querystring
     cursor.execute(querystring)
     row = cursor.fetchone()
-    WallDurationAllJobs4sites = float(row[0])
+    if (NumOverflowJobs4sites + NumNormalJobs4sites == 0):
+        WallDurationAllJobs4sites = 0
+    else:
+        WallDurationAllJobs4sites = float(row[0])
     #print str(WallDurationAllJobs4sites)
 
     # Compute the percentage of walltime of overflow jobs OVER walltime of all jobs (in 4 sites)
-    PercentageWallDurationOverflowJobs4sites = float(100*WallDurationOverflowJobs4sites)/WallDurationAllJobs4sites
+    if (WallDurationAllJobs4sites == 0):
+        PercentageWallDurationOverflowJobs4sites = 0
+    else:
+        PercentageWallDurationOverflowJobs4sites = float(100*WallDurationOverflowJobs4sites)/WallDurationAllJobs4sites
     #print str(PercentageWallDurationOverflowJobs4sites)+"%"
 
     # Compute the number of overflow jobs with exit code 0 (in 4 sites)
@@ -285,7 +354,10 @@ def QueryGratia(cursor, LatestEndTime, EarliestEndTime):
     NumOverflowJobsExitCode0foursites = int(row[0])
 
     # Compute the percentage of number of overflow jobs with exit code 0 OVER number of overflow jobs (in 4 sites)
-    PercentageOverflowJobsExitCode0foursites = float(100*NumOverflowJobsExitCode0foursites)/NumOverflowJobs4sites
+    if (NumOverflowJobs4sites == 0):
+        PercentageOverflowJobsExitCode0foursites = 0
+    else:
+        PercentageOverflowJobsExitCode0foursites = float(100*NumOverflowJobsExitCode0foursites)/NumOverflowJobs4sites
     #print str(PercentageOverflowJobsExitCode0foursites)+"%"
 
     # Compute the number of normal jobs with exit code 0 (in 4 sites)
@@ -296,7 +368,10 @@ def QueryGratia(cursor, LatestEndTime, EarliestEndTime):
     NumNormalJobsExitCode0foursites = int(row[0])
 
     # Compute the percentage of number of normal jobs with exit code 0 OVER number of normal jobs (in 4 sites)
-    PercentageNormalJobsExitCode0foursites = float(100*NumNormalJobsExitCode0foursites)/NumNormalJobs4sites
+    if (NumNormalJobs4sites == 0):
+        PercentageNormalJobsExitCode0foursites = 0
+    else:
+        PercentageNormalJobsExitCode0foursites = float(100*NumNormalJobsExitCode0foursites)/NumNormalJobs4sites
     #print str(PercentageNormalJobsExitCode0foursites)+"%"
     
     # Compute walltime of overflow jobs with exit code 0 (in 4 sites)
@@ -304,10 +379,16 @@ def QueryGratia(cursor, LatestEndTime, EarliestEndTime):
     #print querystring
     cursor.execute(querystring)
     row = cursor.fetchone()
-    WallDurationOverflowJobsExitCode0foursites = int(row[0])
+    if (NumOverflowJobsExitCode0foursites == 0):
+        WallDurationOverflowJobsExitCode0foursites = 0
+    else:
+        WallDurationOverflowJobsExitCode0foursites = int(row[0])
 
     # Compute the percentage of walltime of overflow jobs with exit code 0 OVERFLOW the walltime of all overflow jobs (in 4 sites)
-    PercentageWallDurationOverflowJobsExitCode0foursites = float(100*WallDurationOverflowJobsExitCode0foursites)/WallDurationOverflowJobs4sites
+    if (WallDurationOverflowJobs4sites == 0):
+        PercentageWallDurationOverflowJobsExitCode0foursites = 0
+    else:
+        PercentageWallDurationOverflowJobsExitCode0foursites = float(100*WallDurationOverflowJobsExitCode0foursites)/WallDurationOverflowJobs4sites
     #print str(PercentageWallDurationOverflowJobsExitCode0foursites)+"%"
 
     # Compute number of overflow jobs with exit code 84 (in 4 sites)
@@ -329,7 +410,10 @@ def QueryGratia(cursor, LatestEndTime, EarliestEndTime):
     NumNormalJobsExitCode84foursites = int(row[0])
 
     # Compute percentage of number of normal jobs with exit code 84 OVER number of normal jobs (in 4 sites)
-    PercentageNormalJobsExitCode84foursites = float(100*NumNormalJobsExitCode84foursites)/NumNormalJobs4sites
+    if (NumNormalJobs4sites == 0):
+        PercentageNormalJobsExitCode84foursites = 0
+    else:
+        PercentageNormalJobsExitCode84foursites = float(100*NumNormalJobsExitCode84foursites)/NumNormalJobs4sites
     #print str(PercentageNormalJobsExitCode84foursites)+"%"
 
     # Compute walltime of overflow jobs with exit code 84 (in 4 sites)
@@ -337,10 +421,16 @@ def QueryGratia(cursor, LatestEndTime, EarliestEndTime):
     #print querystring
     cursor.execute(querystring)
     row = cursor.fetchone()
-    WallDurationOverflowJobsExitCode84foursites = int(row[0])
+    if (NumOverflowJobsExitCode84foursites == 0):
+        WallDurationOverflowJobsExitCode84foursites = 0
+    else:
+        WallDurationOverflowJobsExitCode84foursites = float(row[0])
 
     # Compute the percentage of walltime of overflow jobs with exit code 84 OVER walltime of overflow jobs (in 4 sites) 
-    PercentageWallDurationOverflowJobsExitCode84foursites = float(100*WallDurationOverflowJobsExitCode84foursites)/WallDurationOverflowJobs4sites
+    if (WallDurationOverflowJobs4sites == 0):
+        PercentageWallDurationOverflowJobsExitCode84foursites  = 0
+    else:
+        PercentageWallDurationOverflowJobsExitCode84foursites = float(100*WallDurationOverflowJobsExitCode84foursites)/WallDurationOverflowJobs4sites
     #print str(PercentageWallDurationOverflowJobsExitCode84foursites)+"%"
    
     # Compute the efficiency of overflow jobs (in 4 sites)
@@ -348,8 +438,13 @@ def QueryGratia(cursor, LatestEndTime, EarliestEndTime):
     #print querystring
     cursor.execute(querystring)
     row = cursor.fetchone()
-    UserAndSystemDurationOverflowJobs4sites = float(row[0])
-    WallDurationOverflowJobs4sites = float(row[1])
+    if (NumOverflowJobs4sites == 0):
+        UserAndSystemDurationOverflowJobs4sites = 0
+        WallDurationOverflowJobs4sites = 0
+    else:
+        UserAndSystemDurationOverflowJobs4sites = float(row[0])
+        WallDurationOverflowJobs4sites = float(row[1])
+
     EfficiencyOverflowJobs4sites = float(100* UserAndSystemDurationOverflowJobs4sites)/WallDurationOverflowJobs4sites
     #print str(EfficiencyOverflowJobs4sites)+"%"
 
@@ -358,9 +453,16 @@ def QueryGratia(cursor, LatestEndTime, EarliestEndTime):
     #print querystring
     cursor.execute(querystring)
     row = cursor.fetchone()
-    UserAndSystemDurationNormalJobs4sites = float(row[0])
-    WallDurationNormalJobs4sites = float(row[1])
-    EfficiencyNormalJobs4sites = float(100*UserAndSystemDurationNormalJobs4sites)/WallDurationNormalJobs4sites
+    if (NumNormalJobs4sites == 0):
+        UserAndSystemDurationNormalJobs4sites = 0
+        WallDurationNormalJobs4sites = 0
+    else:
+        UserAndSystemDurationNormalJobs4sites = float(row[0])
+        WallDurationNormalJobs4sites = float(row[1])
+    if (WallDurationNormalJobs4sites == 0):
+        EfficiencyNormalJobs4sites = 0
+    else:
+        EfficiencyNormalJobs4sites = float(100*UserAndSystemDurationNormalJobs4sites)/WallDurationNormalJobs4sites
     #print str(EfficiencyNormalJobs4sites) + "%"
 
     # Compute the percentage of number of overflow jobs whose efficiency greater than 80% (in 4 sites)
@@ -369,7 +471,10 @@ def QueryGratia(cursor, LatestEndTime, EarliestEndTime):
     cursor.execute(querystring)
     row = cursor.fetchone()
     NumEfficiencyGT80percentOverflowJobs4sites = int(row[0])
-    PercentageEfficiencyGT80percentOverflowJobs4sites = float(100*NumEfficiencyGT80percentOverflowJobs4sites)/NumOverflowJobs4sites
+    if (NumOverflowJobs4sites == 0):
+        PercentageEfficiencyGT80percentOverflowJobs4sites = 0
+    else:
+        PercentageEfficiencyGT80percentOverflowJobs4sites = float(100*NumEfficiencyGT80percentOverflowJobs4sites)/NumOverflowJobs4sites
     #print str(PercentageEfficiencyGT80percentOverflowJobs4sites) + "%"
 
     # Compute the percentage of normal jobs whose efficiency greater than 80% (in 4 sites)
@@ -378,7 +483,10 @@ def QueryGratia(cursor, LatestEndTime, EarliestEndTime):
     cursor.execute(querystring)
     row = cursor.fetchone()
     NumEfficiencyGT80percentNormalJobs4sites = int(row[0])
-    PercentageEfficiencyGT80percentNormalJobs4sites = float(100*NumEfficiencyGT80percentNormalJobs4sites)/NumNormalJobs4sites
+    if (NumNormalJobs4sites == 0):
+        PercentageEfficiencyGT80percentNormalJobs4sites = 0
+    else:
+        PercentageEfficiencyGT80percentNormalJobs4sites = float(100*NumEfficiencyGT80percentNormalJobs4sites)/NumNormalJobs4sites
     #print str(PercentageEfficiencyGT80percentNormalJobs4sites) + "%"
     
     # Print out the statistics 
