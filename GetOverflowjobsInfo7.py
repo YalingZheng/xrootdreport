@@ -61,10 +61,10 @@ def ConnectDatabase():
     yesterday = date.today() - timedelta(1);
 
     # Job Latest End Time
-    LatestEndTime = now.strftime('%y-%m-%d 14:00:00');
+    LatestEndTime = now.strftime('%Y-%m-%d 14:00:00');
     
     # Job Earliest End time 
-    EarliestEndTime = yesterday.strftime('%y-%m-%d 14:00:00');
+    EarliestEndTime = yesterday.strftime('%Y-%m-%d 14:00:00');
     
     # return database cursor, and job latest End time and earliest end time
     return db, cursor, LatestEndTime, EarliestEndTime
@@ -88,22 +88,60 @@ def QueryGratia(cursor, LatestEndTime, EarliestEndTime):
     the percentage of number of normal jobs whose efficiency is greater than 80%
     '''
     
-    # Compute number of overflow jobs in all sites
-    querystring = "SELECT COUNT(*) from JobUsageRecord where EndTime >=\"20" + EarliestEndTime + "\" and EndTime < \"20" + LatestEndTime + "\" and HostDescription like '%-overflow' and ResourceType=\"BatchPilot\"";
-    #print querystring
-    cursor.execute(querystring);
+    # Compute number (wallduration, CpuUserDuration+CpuSystemDuration) of overflow jobs in all sites
+    querystring = """
+    SELECT
+        COUNT(*), SUM(WallDuration), SUM(CpuUserDuration+CpuSystemDuration)
+    from JobUsageRecord
+    where
+      EndTime>="%s" and EndTime<"%s"
+      AND HostDescription like '%%-overflow'
+      AND ResourceType="BatchPilot";
+     """
+    cursor.execute(querystring % (EarliestEndTime, LatestEndTime));
     row = cursor.fetchone();
     NumOverflowJobs = int(row[0])
-    #print NumOverflowJobs
+    if (NumOverflowJobs==0):
+        WallDurationOverflowJobs = 0
+        UserAndSystemDurationOverflowJobs = 0
+    else:
+        WallDurationOverflowJobs = float(row[1])
+        UserAndSystemDurationOverflowJobs = float(row[2])
+
+    # Compute efficiency of overflow jobs, which is equal to (CpuUserDuration+CpuSystemDuration)/WallDuration (in all sites)
+    if (WallDurationOverflowJobs==0):
+        EfficiencyOverflowJobs = 0
+    else:
+        EfficiencyOverflowJobs = float(100* UserAndSystemDurationOverflowJobs)/WallDurationOverflowJobs;
     
-    # compute number of normal jobs (in all sites)
-    querystring = "SELECT COUNT(*) from JobUsageRecord where EndTime >=\"20" + EarliestEndTime + "\" and EndTime < \"20" + LatestEndTime + "\" and ResourceType=\"BatchPilot\";"; 
-    #print querystring
-    cursor.execute(querystring);
+    # compute number (wallduration, CpuUserDuration+CpuSystemDuration) of normal jobs (in all sites)
+    querystring = """
+    SELECT
+        COUNT(*), SUM(WallDuration), SUM(CpuUserDuration+CpuSystemDuration)
+    from JobUsageRecord
+    where
+      EndTime>="%s" and EndTime<"%s"
+      AND HostDescription NOT like '%%-overflow'
+      AND ResourceType="BatchPilot";
+     """
+    cursor.execute(querystring % (EarliestEndTime, LatestEndTime));
     row = cursor.fetchone();
-    NumAllJobs = int(row[0])
-    NumNormalJobs = NumAllJobs - NumOverflowJobs
+    NumNormalJobs = int(row[0])
+    NumAllJobs = NumOverflowJobs + NumNormalJobs
+    if (NumNormalJobs == 0):
+        WallDurationNormalJobs = 0
+        UserAndSystemDurationNormalJobs = 0
+    else:
+        WallDurationNormalJobs = float(row[1])  
+        UserAndSystemDurationNormalJobs = float(row[2])
+    WallDurationAllJobs = WallDurationNormalJobs + WallDurationNormalJobs
     #print NumNormalJobs 
+
+    # Compute the efficiency of normal jobs (in all sites)
+    if (WallDurationNormalJobs == 0):
+        EfficiencyNormalJobs = 0
+    else:
+        EfficiencyNormalJobs = float(100*UserAndSystemDurationNormalJobs)/WallDurationNormalJobs
 
     # Compute the percentage of number of overflow jobs OVER number of all jobs (in all sites)
     if (NumAllJobs==0):
@@ -112,37 +150,26 @@ def QueryGratia(cursor, LatestEndTime, EarliestEndTime):
         PercentageOverflowJobs = float(NumOverflowJobs*100)/NumAllJobs;
     #print str(PercentageOverflowJobs)+"%"
  
-    # Compute Wall Time of overflow jobs (in all sites)
-    querystring = "SELECT SUM(WallDuration) from JobUsageRecord where EndTime>=\"20" + EarliestEndTime + "\" and EndTime < \"20" + LatestEndTime + "\" and HostDescription like '%-overflow' and ResourceType=\"BatchPilot\";"
-    #print querystring
-    cursor.execute(querystring);
-    row=cursor.fetchone();
-    if (NumOverflowJobs == 0):
-        SumWallDurationOverflowJobs = 0
-    else:
-        SumWallDurationOverflowJobs = float(row[0])
-    
-    # Compute Wall Time of all jobs (in all sites)
-    querystring = "SELECT SUM(WallDuration) from JobUsageRecord where EndTime>=\"20" + EarliestEndTime + "\" and EndTime < \"20" + LatestEndTime + "\" and ResourceType=\"BatchPilot\";";
-    #print querystring
-    cursor.execute(querystring)
-    row = cursor.fetchone()
-    if (NumAllJobs == 0):
-        SumWallDurationAllJobs = 0
-    else:
-        SumWallDurationAllJobs = float(row[0])  
-
     # Compute the percentage of walltime of overflow jobs OVER walltime of all jobs (in all sites)
-    if (SumWallDurationAllJobs==0):
+    if (WallDurationAllJobs==0):
         PercentageWallDurationOverflowJobs = 0
     else:
-        PercentageWallDurationOverflowJobs = float(SumWallDurationOverflowJobs*100)/SumWallDurationAllJobs;
+        PercentageWallDurationOverflowJobs = float(WallDurationOverflowJobs*100)/WallDurationAllJobs;
     #print str(PercentageWallDurationOverflowJobs)+"%"
 
-    # Compute the percentage of number of overflow jobs with exit code 0 OVER number of overflow jobs (in all sites)
-    querystring = "SELECT COUNT(*) from JobUsageRecord JUR JOIN Resource RESC on ((JUR.dbid = RESC.dbid) and (RESC.description = \"ExitCode\")) where EndTime>=\"20" + EarliestEndTime + "\" and EndTime<\"20" + LatestEndTime + "\"" + " and RESC.value=0 and HostDescription like '%-overflow' and ResourceType=\"BatchPilot\";";
-    #print querystring;
-    cursor.execute(querystring)
+    # Compute the percentage of number (wallduration) of overflow jobs with exit code 0 OVER number of overflow jobs (in all sites)
+    querystring = """
+    SELECT
+        COUNT(*), SUM(WallDuration)
+    from JobUsageRecord JUR 
+    JOIN Resource RESC on ((JUR.dbid = RESC.dbid) and (RESC.description="ExitCode"))
+    where
+      EndTime>="%s" and EndTime<"%s"
+      AND RESC.value = 0
+      AND HostDescription like '%%-overflow'
+      AND ResourceType="BatchPilot";
+     """
+    cursor.execute(querystring % (EarliestEndTime, LatestEndTime));
     row = cursor.fetchone()
     NumOverflowJobsExitCode0 = int(row[0])
     if (NumOverflowJobs==0):
@@ -150,11 +177,30 @@ def QueryGratia(cursor, LatestEndTime, EarliestEndTime):
     else:
         PercentageExitCode0Overflow =float(100*NumOverflowJobsExitCode0)/ NumOverflowJobs
     #print str(PercentageExitCode0Overflow) + "%"
-   
+    if (NumOverflowJobsExitCode0==0):
+        WallDurationOverflowJobsExitCode0 = 0
+    else:
+        WallDurationOverflowJobsExitCode0 = float(row[1]) 
+
+    # Compute the walltime percentage of walltime of overflow jobs with exit code 0 OVER walltime of overflow jobs (in all sites)
+    if (WallDurationOverflowJobs==0):
+        PercentageWallDurationOverflowJobsExitCode0 = 0
+    else:
+        PercentageWallDurationOverflowJobsExitCode0 = float(100*WallDurationOverflowJobsExitCode0)/WallDurationOverflowJobs;
+  
     # Compute the percentage of number normal jobs with exit code 0 OVER number of normal jobs (in all sites)
-    querystring = "SELECT COUNT(*) from JobUsageRecord JUR JOIN Resource RESC on ((JUR.dbid = RESC.dbid) and (RESC.description = \"ExitCode\")) where EndTime>\"20" + EarliestEndTime + "\" and EndTime<\"20" + LatestEndTime + "\"" + " and RESC.value =0 and HostDescription NOT like '%-overflow' and ResourceType=\"BatchPilot\";";
-    #print querystring;
-    cursor.execute(querystring)
+    querystring = """
+    SELECT
+        COUNT(*)
+    from JobUsageRecord JUR 
+    JOIN Resource RESC on ((JUR.dbid = RESC.dbid) and (RESC.description="ExitCode"))
+    where
+      EndTime>="%s" and EndTime<"%s"
+      AND RESC.value = 0
+      AND HostDescription NOT like '%%-overflow'
+      AND ResourceType="BatchPilot";
+     """
+    cursor.execute(querystring % (EarliestEndTime, LatestEndTime));
     row = cursor.fetchone()
     NumNormalJobsExitCode0 = int(row[0])
     if (NumNormalJobs==0):
@@ -163,40 +209,19 @@ def QueryGratia(cursor, LatestEndTime, EarliestEndTime):
         PercentageExitCode0Normal = float(100*NumNormalJobsExitCode0)/NumNormalJobs
     #print str(PercentageExitCode0Normal) + "%"
     
-    # compute walltime of overflow jobs (in all sites)
-    querystring = "SELECT SUM(WallDuration) from JobUsageRecord where EndTime>\"20" + EarliestEndTime + "\" and EndTime<\"20" + LatestEndTime + "\"" + " and HostDescription like '%-overflow' and ResourceType=\"BatchPilot\";";
-    #print querystring
-    cursor.execute(querystring)
-    row = cursor.fetchone()
-    if (NumOverflowJobs==0):
-        WallDurationOverflowJobs = 0
-    else:
-        WallDurationOverflowJobs = float(row[0])
-    #print str(WallDurationOverflowJobs)
-    
-    # compute waltime of overflow jobs with exit code 0 (in all sites)
-    querystring = "SELECT SUM(WallDuration) from JobUsageRecord JUR JOIN Resource RESC on ((JUR.dbid=RESC.dbid) and (RESC.description=\"ExitCode\")) where EndTime>\"20" + EarliestEndTime + "\" and EndTime<\"20" + LatestEndTime + "\"" + " and RESC.value = 0 and HostDescription like '%-overflow' and ResourceType=\"BatchPilot\";"
-    #print querystring
-    cursor.execute(querystring)
-    row = cursor.fetchone()
-    if (NumOverflowJobsExitCode0==0):
-        WallDurationOverflowJobsExitCode0 = 0
-    else:
-        WallDurationOverflowJobsExitCode0 = float(row[0])   
-    #print str(WallDurationOverflowJobsExitCode0)
-
-    # Compute the walltime percentage of walltime of overflow jobs with exit code 0 OVER walltime of overflow jobs (in all sites)
-    if (WallDurationOverflowJobs==0):
-        PercentageWallDurationOverflowJobsExitCode0 = 0
-    else:
-        PercentageWallDurationOverflowJobsExitCode0 = float(100*WallDurationOverflowJobsExitCode0)/WallDurationOverflowJobs;
-    #print str(PercentageWallDurationOverflowJobsExitCode0)+"%"
-
-
     # compute number of overflow jobs with exit code 84 (in all sites)
-    querystring = "SELECT COUNT(*) from JobUsageRecord JUR JOIN Resource RESC on ((JUR.dbid=RESC.dbid) and (RESC.description=\"ExitCode\")) where EndTime>\"20" + EarliestEndTime + "\" and EndTime<\"20" + LatestEndTime + "\"" + " and RESC.value=84 and HostDescription like '%-overflow' and ResourceType=\"BatchPilot\";"
-    #print querystring
-    cursor.execute(querystring)
+    querystring = """
+    SELECT
+        COUNT(*), SUM(WallDuration)
+    from JobUsageRecord JUR 
+    JOIN Resource RESC on ((JUR.dbid = RESC.dbid) and (RESC.description="ExitCode"))
+    where
+      EndTime>="%s" and EndTime<"%s"
+      AND RESC.value = 84
+      AND HostDescription like '%%-overflow'
+      AND ResourceType="BatchPilot";
+     """
+    cursor.execute(querystring % (EarliestEndTime, LatestEndTime));
     row = cursor.fetchone()
     NumOverflowJobsExitCode84 = int(row[0])
 
@@ -208,14 +233,10 @@ def QueryGratia(cursor, LatestEndTime, EarliestEndTime):
     #print str(PercentageNumOverflowJobsExitCode84)+"%"
 
     # compute walltime of overflow jobs with exit code 84 (in all sites)
-    querystring = "SELECT SUM(WallDuration) from JobUsageRecord JUR JOIN Resource RESC on ((JUR.dbid=RESC.dbid) and (RESC.description=\"ExitCode\")) where EndTime>\"20" + EarliestEndTime + "\" and EndTime<\"20" + LatestEndTime + "\"" + " and RESC.value = 84 and HostDescription like '%-overflow' and ResourceType=\"BatchPilot\";"
-    #print querystring
-    cursor.execute(querystring)
-    row = cursor.fetchone()
     if (NumOverflowJobsExitCode84==0):
         WallDurationOverflowJobsExitCode84 = 0
     else:
-        WallDurationOverflowJobsExitCode84 = float(row[0])
+        WallDurationOverflowJobsExitCode84 = float(row[1])
     #print str(WallDurationOverflowJobsExitCode84)
 
     # Compute the percentage of walltime of overflow jobs with exit code 84 OVER walltime of overflow jobs (in all sites) 
@@ -223,10 +244,18 @@ def QueryGratia(cursor, LatestEndTime, EarliestEndTime):
     #print str(PercentageWallDurationOverflowJobsExitCode84)+"%"
 
     # compute number of normal jobs with exit code 84 (in all sites)
-    querystring = "SELECT COUNT(*) from JobUsageRecord JUR JOIN Resource RESC on ((JUR.dbid=RESC.dbid) and (RESC.description=\"ExitCode\")) where EndTime>\"20" + EarliestEndTime + "\" and EndTime<\"20" + LatestEndTime + "\"" + " and RESC.value =84 and HostDescription NOT like '%-overflow' and ResourceType=\"BatchPilot\";"
-    #print querystring
-    cursor.execute(querystring)
-    row = cursor.fetchone()
+    querystring = """
+    SELECT
+        COUNT(*)
+    from JobUsageRecord JUR 
+    JOIN Resource RESC on ((JUR.dbid = RESC.dbid) and (RESC.description="ExitCode"))
+    where
+      EndTime>="%s" and EndTime<"%s"
+      AND RESC.value = 84
+      AND HostDescription NOT like '%%-overflow'
+      AND ResourceType="BatchPilot";
+     """
+    cursor.execute(querystring % (EarliestEndTime, LatestEndTime));
     NumNormalJobsExitCode84 = int(row[0])
 
     # Compute the percentage of number of normal jobs with exit code 84 OVER number of normal jobs (in all sites) 
@@ -236,44 +265,18 @@ def QueryGratia(cursor, LatestEndTime, EarliestEndTime):
         PercentageNumNormalJobsExitCode84 = float(100*NumNormalJobsExitCode84)/NumNormalJobs
     #print str(PercentageNumNormalJobsExitCode84)+"%"
 
-    # Compute efficiency of overflow jobs, which is equal to (CpuUserDuration+CpuSystemDuration)/WallDuration (in all sites)
-    querystring = "SELECT SUM(CpuUserDuration+CpuSystemDuration), SUM(WallDuration) from JobUsageRecord where EndTime>\"20" + EarliestEndTime + "\" and EndTime<\"20" + LatestEndTime + "\"" + " and HostDescription like '%-overflow' and ResourceType=\"BatchPilot\";" 
-    #print querystring
-    cursor.execute(querystring)
-    row = cursor.fetchone()
-    if (NumOverflowJobs == 0):
-        UserAndSystemDurationOverflowJobs = 0
-        WallDurationOverflowJobs = 0
-    else:
-        UserAndSystemDurationOverflowJobs = float(row[0])
-        WallDurationOverflowJobs = float(row[1])
-    if (WallDurationOverflowJobs==0):
-        EfficiencyOverflowJobs = 0
-    else:
-        EfficiencyOverflowJobs = float(100* UserAndSystemDurationOverflowJobs)/WallDurationOverflowJobs;
-    #print str(EfficiencyOverflowJobs)+"%"
-
-    # Compute the efficiency of normal jobs (in all sites)
-    querystring = "SELECT SUM(CpuUserDuration+CpuSystemDuration), SUM(WallDuration) from JobUsageRecord where EndTime>\"20" + EarliestEndTime + "\" and EndTime<\"20" + LatestEndTime + "\"" + " and HostDescription NOT like '%-overflow' and ResourceType=\"BatchPilot\";"
-    #print querystring
-    cursor.execute(querystring)
-    row = cursor.fetchone()
-    if (NumNormalJobs == 0):
-        UserAndSystemDurationNormalJobs = 0
-        WallDurationNormalJobs = 0
-    else:
-        UserAndSystemDurationNormalJobs = float(row[0])
-        WallDurationNormalJobs = float(row[1])
-    if (WallDurationNormalJobs == 0):
-        EfficiencyNormalJobs = 0
-    else:
-        EfficiencyNormalJobs = float(100*UserAndSystemDurationNormalJobs)/WallDurationNormalJobs
-    #print str(EfficiencyNormalJobs) + "%"
-
     # Compute the percentage of number of overflow jobs whose efficiency greater than 80% (in all sites)
-    querystring = "SELECT COUNT(*) from JobUsageRecord where EndTime>\"20" + EarliestEndTime + "\" and EndTime<\"20" + LatestEndTime + "\"" + " and HostDescription like '%-overflow' and ResourceType=\"BatchPilot\" and (CpuUserDuration+CpuSystemDuration)/WallDuration > 0.8; ";
-    #print querystring
-    cursor.execute(querystring)
+    querystring = """
+    SELECT
+        COUNT(*)
+    from JobUsageRecord 
+    where
+      EndTime>="%s" and EndTime<"%s"
+      AND HostDescription like '%%-overflow'
+      AND ResourceType="BatchPilot"
+      AND (CpuUserDuration+CpuSystemDuration)/WallDuration > 0.8;
+     """
+    cursor.execute(querystring % (EarliestEndTime, LatestEndTime));
     row = cursor.fetchone()
     NumEfficiencyGT80percentOverflowJobs = int(row[0])
     if (NumOverflowJobs == 0):
@@ -283,9 +286,17 @@ def QueryGratia(cursor, LatestEndTime, EarliestEndTime):
     #print str(PercentageEfficiencyGT80percentOverflowJobs) + "%"
 
     # Compute the percentage of number of normal jobs whose efficiency greater than 80% (in all sites)
-    querystring = "SELECT COUNT(*) from JobUsageRecord where EndTime>\"20" + EarliestEndTime + "\" and EndTime<\"20" + LatestEndTime + "\"" + " and HostDescription NOT like '%-overflow' and ResourceType=\"BatchPilot\" and (CpuUserDuration+CpuSystemDuration)/WallDuration > 0.8; ";
-    #print querystring
-    cursor.execute(querystring)
+    querystring = """
+    SELECT
+        COUNT(*)
+    from JobUsageRecord  
+    where
+      EndTime>="%s" and EndTime<"%s"
+      AND HostDescription NOT like '%%-overflow'
+      AND ResourceType="BatchPilot"
+      AND (CpuUserDuration+CpuSystemDuration)/WallDuration > 0.8;
+     """
+    cursor.execute(querystring % (EarliestEndTime, LatestEndTime));
     row = cursor.fetchone()
     NumEfficiencyGT80percentNormalJobs = int(row[0])
     if (NumNormalJobs == 0):
@@ -294,165 +305,86 @@ def QueryGratia(cursor, LatestEndTime, EarliestEndTime):
         PercentageEfficiencyGT80percentNormalJobs = float(100*NumEfficiencyGT80percentNormalJobs)/NumNormalJobs
     #print str(PercentageEfficiencyGT80percentNormalJobs) + "%"
  
-    # Compute the number of overflow jobs that in %UCSD%, %Nebraska%, %GLOW%, and %Purdue%
-    querystring = "SELECT COUNT(*) from JobUsageRecord JUR JOIN JobUsageRecord_Meta JURM on (JUR.dbid = JURM.dbid) JOIN Probe P on (JURM.ProbeName = P.probename) JOIN Site S on (P.siteid = S.siteid) where EndTime>\"20" + EarliestEndTime + "\" and EndTime<\"20" + LatestEndTime + "\"" + " and HostDescription like '%-overflow' and ResourceType=\"BatchPilot\" and (SiteName like '%Nebraska%' or SiteName like '%UCSD%' or SiteName like '%Purdue%' or SiteName like '%GLOW%');"
-    #print querystring
-    cursor.execute(querystring)
+    # Compute the number (walltime) of all jobs in 4 sites
+    querystring = """
+    SELECT
+        COUNT(*), SUM(WallDuration), SUM(CpuUserDuration+CpuSystemDuration)
+    from JobUsageRecord JUR 
+    JOIN JobUsageRecord_Meta JURM on (JUR.dbid = JURM.dbid)
+    JOIN Probe P on (JURM.ProbeName = P.probename)
+    JOIN Site S on (P.siteid = S.siteid)
+    where
+      EndTime>="%s" and EndTime<"%s"
+      AND ResourceType="BatchPilot"
+      AND (SiteName like '%%Nebraska%%' or SiteName like '%%UCSD%%' or SiteName like '%%Purdue%%' or SiteName like '%%GLOW%%');
+     """
+    cursor.execute(querystring % (EarliestEndTime, LatestEndTime));
     row = cursor.fetchone()
-    NumOverflowJobs4sites = int(row[0])
-    #print str(NumOverflowJobs4sites)
-    
-    # Compute the number of normal jobs (in 4 sites)
-    querystring = "SELECT COUNT(*) from JobUsageRecord JUR JOIN JobUsageRecord_Meta JURM on (JUR.dbid = JURM.dbid) JOIN Probe P on (JURM.ProbeName = P.probename) JOIN Site S on (P.siteid = S.siteid) where EndTime>\"20" + EarliestEndTime + "\" and EndTime<\"20" + LatestEndTime + "\"" + " and HostDescription not like '%-overflow' and ResourceType=\"BatchPilot\" and (SiteName like '%Nebraska%' or SiteName like '%UCSD%' or SiteName like '%Purdue%' or SiteName like '%GLOW%');"
-    #print querystring
-    cursor.execute(querystring)
-    row = cursor.fetchone()
-    NumNormalJobs4sites = int(row[0])
-    #print str(NumNormalJobs4sites)
-  
-    # Compute the percentage of number of overflow jobs OVER number of all jobs (in 4 sites)
-    if (NumOverflowJobs4sites + NumNormalJobs4sites == 0):
-        PercentageOverflowJobs4sites = 0
-    else:
-        PercentageOverflowJobs4sites = float(100*NumOverflowJobs4sites)/(NumOverflowJobs4sites + NumNormalJobs4sites);
-    #print str(PercentageOverflowJobs4sites) + "%"
-   
-    # compute walltime of overflow jobs (in 4 sites)
-    querystring = "SELECT SUM(WallDuration) from JobUsageRecord JUR JOIN JobUsageRecord_Meta JURM on (JUR.dbid = JURM.dbid) JOIN Probe P on (JURM.ProbeName = P.probename) JOIN Site S on (P.siteid = S.siteid) where EndTime>\"20" + EarliestEndTime + "\" and EndTime<\"20" + LatestEndTime + "\" and HostDescription like '%-overflow' and ResourceType=\"BatchPilot\" and (SiteName like '%Nebraska%' or SiteName like '%UCSD%' or SiteName like '%Purdue%' or SiteName like '%GLOW%');"
-    #print querystring
-    cursor.execute(querystring)
-    row = cursor.fetchone()
-    if (NumOverflowJobs4sites==0):
-        WallDurationOverflowJobs4sites = 0
-    else:
-        WallDurationOverflowJobs4sites = float(row[0])
-    #print str(WallDurationOverflowJobs4sites)
-   
-    # Compute walltime of all jobs (in 4 sites)
-    querystring = "SELECT SUM(WallDuration) from JobUsageRecord JUR JOIN JobUsageRecord_Meta JURM on (JUR.dbid = JURM.dbid) JOIN Probe P on (JURM.ProbeName = P.probename) JOIN Site S on (P.siteid = S.siteid) where EndTime>\"20" + EarliestEndTime + "\" and EndTime<\"20" + LatestEndTime + "\"  and ResourceType=\"BatchPilot\" and (SiteName like '%Nebraska%' or SiteName like '%UCSD%' or SiteName like '%Purdue%' or SiteName like '%GLOW%');"
-    #print querystring
-    cursor.execute(querystring)
-    row = cursor.fetchone()
-    if (NumOverflowJobs4sites + NumNormalJobs4sites == 0):
+    NumAllJobs4sites = int(row[0])
+    if (NumAllJobs4sites==0):
         WallDurationAllJobs4sites = 0
     else:
-        WallDurationAllJobs4sites = float(row[0])
-    #print str(WallDurationAllJobs4sites)
+        WallDurationAllJobs4sites = float(row[1])
+
+    # Compute the number of overflow jobs that in %UCSD%, %Nebraska%, %GLOW%, and %Purdue%
+    querystring = """
+    SELECT
+        COUNT(*), SUM(WallDuration), SUM(CpuUserDuration+CpuSystemDuration)
+    from JobUsageRecord JUR 
+    JOIN JobUsageRecord_Meta JURM on (JUR.dbid = JURM.dbid)
+    JOIN Probe P on (JURM.ProbeName = P.probename)
+    JOIN Site S on (P.siteid = S.siteid)
+    where
+      EndTime>="%s" and EndTime<"%s"
+      AND HostDescription like '%%-overflow'
+      AND ResourceType="BatchPilot"
+      AND (SiteName like '%%Nebraska%%' or SiteName like '%%UCSD%%' or SiteName like '%%Purdue%%' or SiteName like '%%GLOW%%');
+     """
+    cursor.execute(querystring % (EarliestEndTime, LatestEndTime));
+    row = cursor.fetchone()
+    NumOverflowJobs4sites = int(row[0])
+    if (NumOverflowJobs4sites==0):
+        WallDurationOverflowJobs4sites = 0
+        UserAndSystemDurationOverflowJobs4sites = 0
+    else:
+        WallDurationOverflowJobs4sites = float(row[1])
+        UserAndSystemDurationOverflowJobs4sites = float(row[2])
 
     # Compute the percentage of walltime of overflow jobs OVER walltime of all jobs (in 4 sites)
+
     if (WallDurationAllJobs4sites == 0):
         PercentageWallDurationOverflowJobs4sites = 0
     else:
         PercentageWallDurationOverflowJobs4sites = float(100*WallDurationOverflowJobs4sites)/WallDurationAllJobs4sites
     #print str(PercentageWallDurationOverflowJobs4sites)+"%"
 
-    # Compute the number of overflow jobs with exit code 0 (in 4 sites)
-    querystring = "SELECT COUNT(*) from JobUsageRecord JUR JOIN Resource RESC on ((JUR.dbid = RESC.dbid) and (RESC.description=\"ExitCode\")) JOIN JobUsageRecord_Meta JURM on (JUR.dbid = JURM.dbid) JOIN Probe P on (JURM.ProbeName = P.probename) JOIN Site S on (P.siteid = S.siteid) where EndTime>\"20" + EarliestEndTime + "\" and EndTime<\"20" + LatestEndTime + "\" and HostDescription like '%-overflow' and ResourceType=\"BatchPilot\" and RESC.value=0 and (SiteName like '%Nebraska%' or SiteName like '%UCSD%' or SiteName like '%Purdue%' or SiteName like '%GLOW%');"
-    #print querystring
-    cursor.execute(querystring)
-    row = cursor.fetchone()
-    NumOverflowJobsExitCode0foursites = int(row[0])
-
-    # Compute the percentage of number of overflow jobs with exit code 0 OVER number of overflow jobs (in 4 sites)
-    if (NumOverflowJobs4sites == 0):
-        PercentageOverflowJobsExitCode0foursites = 0
-    else:
-        PercentageOverflowJobsExitCode0foursites = float(100*NumOverflowJobsExitCode0foursites)/NumOverflowJobs4sites
-    #print str(PercentageOverflowJobsExitCode0foursites)+"%"
-
-    # Compute the number of normal jobs with exit code 0 (in 4 sites)
-    querystring = "SELECT COUNT(*) from JobUsageRecord JUR JOIN Resource RESC on ((JUR.dbid = RESC.dbid) and (RESC.description=\"ExitCode\")) JOIN JobUsageRecord_Meta JURM on (JUR.dbid = JURM.dbid) JOIN Probe P on (JURM.ProbeName = P.probename) JOIN Site S on (P.siteid = S.siteid) where EndTime>\"20" + EarliestEndTime + "\" and EndTime<\"20" + LatestEndTime + "\" and HostDescription not like '%-overflow' and ResourceType=\"BatchPilot\" and RESC.value=0 and (SiteName like '%Nebraska%' or SiteName like '%UCSD%' or SiteName like '%Purdue%' or SiteName like '%GLOW%');"
-    #print querystring
-    cursor.execute(querystring)
-    row = cursor.fetchone()
-    NumNormalJobsExitCode0foursites = int(row[0])
-
-    # Compute the percentage of number of normal jobs with exit code 0 OVER number of normal jobs (in 4 sites)
-    if (NumNormalJobs4sites == 0):
-        PercentageNormalJobsExitCode0foursites = 0
-    else:
-        PercentageNormalJobsExitCode0foursites = float(100*NumNormalJobsExitCode0foursites)/NumNormalJobs4sites
-    #print str(PercentageNormalJobsExitCode0foursites)+"%"
-    
-    # Compute walltime of overflow jobs with exit code 0 (in 4 sites)
-    querystring = "SELECT SUM(WallDuration) from JobUsageRecord JUR JOIN Resource RESC on ((JUR.dbid = RESC.dbid) and (RESC.description=\"ExitCode\")) JOIN JobUsageRecord_Meta JURM on (JUR.dbid = JURM.dbid) JOIN Probe P on (JURM.ProbeName = P.probename) JOIN Site S on (P.siteid = S.siteid) where EndTime>\"20" + EarliestEndTime + "\" and EndTime<\"20" + LatestEndTime + "\" and HostDescription like '%-overflow' and ResourceType=\"BatchPilot\" and RESC.value=0 and (SiteName like '%Nebraska%' or SiteName like '%UCSD%' or SiteName like '%Purdue%' or SiteName like '%GLOW%');"
-    #print querystring
-    cursor.execute(querystring)
-    row = cursor.fetchone()
-    if (NumOverflowJobsExitCode0foursites == 0):
-        WallDurationOverflowJobsExitCode0foursites = 0
-    else:
-        WallDurationOverflowJobsExitCode0foursites = int(row[0])
-
-    # Compute the percentage of walltime of overflow jobs with exit code 0 OVERFLOW the walltime of all overflow jobs (in 4 sites)
-    if (WallDurationOverflowJobs4sites == 0):
-        PercentageWallDurationOverflowJobsExitCode0foursites = 0
-    else:
-        PercentageWallDurationOverflowJobsExitCode0foursites = float(100*WallDurationOverflowJobsExitCode0foursites)/WallDurationOverflowJobs4sites
-    #print str(PercentageWallDurationOverflowJobsExitCode0foursites)+"%"
-
-    # Compute number of overflow jobs with exit code 84 (in 4 sites)
-    querystring = "SELECT COUNT(*) from JobUsageRecord JUR JOIN Resource RESC on ((JUR.dbid = RESC.dbid) and (RESC.description=\"ExitCode\")) JOIN JobUsageRecord_Meta JURM on (JUR.dbid = JURM.dbid) JOIN Probe P on (JURM.ProbeName = P.probename) JOIN Site S on (P.siteid = S.siteid) where EndTime>\"20" + EarliestEndTime + "\" and EndTime<\"20" + LatestEndTime + "\" and HostDescription like '%-overflow' and ResourceType=\"BatchPilot\" and RESC.value=84 and (SiteName like '%Nebraska%' or SiteName like '%UCSD%' or SiteName like '%Purdue%' or SiteName like '%GLOW%');"
-    #print querystring
-    cursor.execute(querystring)
-    row = cursor.fetchone()
-    NumOverflowJobsExitCode84foursites = int(row[0])
-
-    # Compute percentage of number of overflow jobs with exit code 84 OVER number of overflow jobs (in 4 sites)
-    PercentageOverflowJobsExitCode84foursites = float(100*NumOverflowJobsExitCode84foursites)/NumOverflowJobs4sites
-    #print str(PercentageOverflowJobsExitCode84foursites)+"%"
-
-    # Compute number of normal jobs with exit code 84 (in 4 sites)
-    querystring = "SELECT COUNT(*) from JobUsageRecord JUR JOIN Resource RESC on ((JUR.dbid = RESC.dbid) and (RESC.description=\"ExitCode\")) JOIN JobUsageRecord_Meta JURM on (JUR.dbid = JURM.dbid) JOIN Probe P on (JURM.ProbeName = P.probename) JOIN Site S on (P.siteid = S.siteid) where EndTime>\"20" + EarliestEndTime + "\" and EndTime<\"20" + LatestEndTime + "\" and HostDescription not like '%-overflow' and ResourceType=\"BatchPilot\" and RESC.value=84 and (SiteName like '%Nebraska%' or SiteName like '%UCSD%' or SiteName like '%Purdue%' or SiteName like '%GLOW%');"
-    #print querystring
-    cursor.execute(querystring)
-    row = cursor.fetchone()
-    NumNormalJobsExitCode84foursites = int(row[0])
-
-    # Compute percentage of number of normal jobs with exit code 84 OVER number of normal jobs (in 4 sites)
-    if (NumNormalJobs4sites == 0):
-        PercentageNormalJobsExitCode84foursites = 0
-    else:
-        PercentageNormalJobsExitCode84foursites = float(100*NumNormalJobsExitCode84foursites)/NumNormalJobs4sites
-    #print str(PercentageNormalJobsExitCode84foursites)+"%"
-
-    # Compute walltime of overflow jobs with exit code 84 (in 4 sites)
-    querystring = "SELECT SUM(WallDuration) from JobUsageRecord JUR JOIN Resource RESC on ((JUR.dbid = RESC.dbid) and (RESC.description=\"ExitCode\")) JOIN JobUsageRecord_Meta JURM on (JUR.dbid = JURM.dbid) JOIN Probe P on (JURM.ProbeName = P.probename) JOIN Site S on (P.siteid = S.siteid) where EndTime>\"20" + EarliestEndTime + "\" and EndTime<\"20" + LatestEndTime + "\" and HostDescription like '%-overflow' and ResourceType=\"BatchPilot\" and RESC.value=84 and (SiteName like '%Nebraska%' or SiteName like '%UCSD%' or SiteName like '%Purdue%' or SiteName like '%GLOW%');"
-    #print querystring
-    cursor.execute(querystring)
-    row = cursor.fetchone()
-    if (NumOverflowJobsExitCode84foursites == 0):
-        WallDurationOverflowJobsExitCode84foursites = 0
-    else:
-        WallDurationOverflowJobsExitCode84foursites = float(row[0])
-
-    # Compute the percentage of walltime of overflow jobs with exit code 84 OVER walltime of overflow jobs (in 4 sites) 
-    if (WallDurationOverflowJobs4sites == 0):
-        PercentageWallDurationOverflowJobsExitCode84foursites  = 0
-    else:
-        PercentageWallDurationOverflowJobsExitCode84foursites = float(100*WallDurationOverflowJobsExitCode84foursites)/WallDurationOverflowJobs4sites
-    #print str(PercentageWallDurationOverflowJobsExitCode84foursites)+"%"
-   
     # Compute the efficiency of overflow jobs (in 4 sites)
-    querystring = "SELECT SUM(CpuUserDuration+CpuSystemDuration),SUM(WallDuration) from JobUsageRecord JUR JOIN JobUsageRecord_Meta JURM on (JUR.dbid = JURM.dbid) JOIN Probe P on (JURM.ProbeName = P.probename) JOIN Site S on (P.siteid = S.siteid) where EndTime>\"20" + EarliestEndTime + "\" and EndTime<\"20" + LatestEndTime + "\"" + " and HostDescription like '%-overflow'  and ResourceType=\"BatchPilot\" and (SiteName like '%Nebraska%' or SiteName like '%UCSD%' or SiteName like '%Purdue%' or SiteName like '%GLOW%');"
-    #print querystring
-    cursor.execute(querystring)
-    row = cursor.fetchone()
-    if (NumOverflowJobs4sites == 0):
-        UserAndSystemDurationOverflowJobs4sites = 0
-        WallDurationOverflowJobs4sites = 0
+    if (WallDurationOverflowJobs4sites == 0):
+        EfficiencyOverflowJobs4sites = 0
     else:
-        UserAndSystemDurationOverflowJobs4sites = float(row[0])
-        WallDurationOverflowJobs4sites = float(row[1])
+        EfficiencyOverflowJobs4sites = float(100* UserAndSystemDurationOverflowJobs4sites)/WallDurationOverflowJobs4sites
 
-    EfficiencyOverflowJobs4sites = float(100* UserAndSystemDurationOverflowJobs4sites)/WallDurationOverflowJobs4sites
-    #print str(EfficiencyOverflowJobs4sites)+"%"
+    #print str(NumOverflowJobs4sites)
+    
+    # Compute the number (efficiency) of normal jobs (in 4 sites)
 
-    # Compute the efficiency of normal jobs (in 4 sites)
-    querystring = "SELECT SUM(CpuUserDuration+CpuSystemDuration), SUM(WallDuration) from JobUsageRecord JUR JOIN JobUsageRecord_Meta JURM on (JUR.dbid = JURM.dbid) JOIN Probe P on (JURM.ProbeName = P.probename) JOIN Site S on (P.siteid = S.siteid) where EndTime>\"20" + EarliestEndTime + "\" and EndTime<\"20" + LatestEndTime + "\"" + " and HostDescription not like '%-overflow' and ResourceType=\"BatchPilot\" and (SiteName like '%Nebraska%' or SiteName like '%UCSD%' or SiteName like '%Purdue%' or SiteName like '%GLOW%');"
-    #print querystring
-    cursor.execute(querystring)
+    querystring = """
+    SELECT
+        COUNT(*), SUM(WallDuration), SUM(CpuUserDuration+CpuSystemDuration)
+    from JobUsageRecord JUR
+    JOIN JobUsageRecord_Meta JURM on (JUR.dbid = JURM.dbid)
+    JOIN Probe P on (JURM.ProbeName = P.probename)
+    JOIN Site S on (P.siteid = S.siteid)
+    where
+      EndTime>="%s" and EndTime<"%s"
+      AND HostDescription NOT like '%%-overflow'
+      AND ResourceType="BatchPilot"
+      AND (SiteName like '%%Nebraska%%' or SiteName like '%%UCSD%%' or SiteName like '%%Purdue%%' or SiteName like '%%GLOW%%');
+     """
+    cursor.execute(querystring % (EarliestEndTime, LatestEndTime));
     row = cursor.fetchone()
+    NumNormalJobs4sites = int(row[0])
+    #print str(NumNormalJobs4sites)
     if (NumNormalJobs4sites == 0):
         UserAndSystemDurationNormalJobs4sites = 0
         WallDurationNormalJobs4sites = 0
@@ -464,11 +396,157 @@ def QueryGratia(cursor, LatestEndTime, EarliestEndTime):
     else:
         EfficiencyNormalJobs4sites = float(100*UserAndSystemDurationNormalJobs4sites)/WallDurationNormalJobs4sites
     #print str(EfficiencyNormalJobs4sites) + "%"
+  
+    # Compute the percentage of number of overflow jobs OVER number of all jobs (in 4 sites)
+    if (NumAllJobs4sites == 0):
+        PercentageOverflowJobs4sites = 0
+    else:
+        PercentageOverflowJobs4sites = float(100*NumOverflowJobs4sites)/NumAllJobs4sites;
+    #print str(PercentageOverflowJobs4sites) + "%"
+   
+    # Compute the number of overflow jobs with exit code 0 (in 4 sites)
+    querystring = """
+    SELECT
+        COUNT(*), SUM(WallDuration)
+    from JobUsageRecord JUR 
+    JOIN Resource RESC on ((JUR.dbid = RESC.dbid) and (RESC.description="ExitCode"))
+    JOIN JobUsageRecord_Meta JURM on (JUR.dbid = JURM.dbid)
+    JOIN Probe P on (JURM.ProbeName = P.probename)
+    JOIN Site S on (P.siteid = S.siteid)
+    where
+      EndTime>="%s" and EndTime<"%s"
+      AND RESC.value = 0
+      AND HostDescription like '%%-overflow'
+      AND ResourceType="BatchPilot"
+      AND (SiteName like '%%Nebraska%%' or SiteName like '%%UCSD%%' or SiteName like '%%Purdue%%' or SiteName like '%%GLOW%%');
+     """
+    cursor.execute(querystring % (EarliestEndTime, LatestEndTime));
+    row = cursor.fetchone()
+    NumOverflowJobsExitCode0foursites = int(row[0])
+
+    # Compute the percentage of number of overflow jobs with exit code 0 OVER number of overflow jobs (in 4 sites)
+    if (NumOverflowJobs4sites == 0):
+        PercentageOverflowJobsExitCode0foursites = 0
+    else:
+        PercentageOverflowJobsExitCode0foursites = float(100*NumOverflowJobsExitCode0foursites)/NumOverflowJobs4sites
+    #print str(PercentageOverflowJobsExitCode0foursites)+"%"
+    if (NumOverflowJobsExitCode0foursites == 0):
+        WallDurationOverflowJobsExitCode0foursites = 0
+    else:
+        WallDurationOverflowJobsExitCode0foursites = int(row[1])
+
+    # Compute the percentage of walltime of overflow jobs with exit code 0 OVERFLOW the walltime of all overflow jobs (in 4 sites)
+    if (WallDurationOverflowJobs4sites == 0):
+        PercentageWallDurationOverflowJobsExitCode0foursites = 0
+    else:
+        PercentageWallDurationOverflowJobsExitCode0foursites = float(100*WallDurationOverflowJobsExitCode0foursites)/WallDurationOverflowJobs4sites
+
+    # Compute the number of normal jobs with exit code 0 (in 4 sites)
+    querystring = """
+    SELECT
+        COUNT(*)
+    from JobUsageRecord JUR 
+    JOIN Resource RESC on ((JUR.dbid = RESC.dbid) and (RESC.description="ExitCode"))
+    JOIN JobUsageRecord_Meta JURM on (JUR.dbid = JURM.dbid)
+    JOIN Probe P on (JURM.ProbeName = P.probename)
+    JOIN Site S on (P.siteid = S.siteid)
+    where
+      EndTime>="%s" and EndTime<"%s"
+      AND RESC.value = 0
+      AND HostDescription NOT like '%%-overflow'
+      AND ResourceType="BatchPilot"
+      AND (SiteName like '%%Nebraska%%' or SiteName like '%%UCSD%%' or SiteName like '%%Purdue%%' or SiteName like '%%GLOW%%');
+     """
+    cursor.execute(querystring % (EarliestEndTime, LatestEndTime));
+    row = cursor.fetchone()
+    NumNormalJobsExitCode0foursites = int(row[0])
+
+    # Compute the percentage of number of normal jobs with exit code 0 OVER number of normal jobs (in 4 sites)
+    if (NumNormalJobs4sites == 0):
+        PercentageNormalJobsExitCode0foursites = 0
+    else:
+        PercentageNormalJobsExitCode0foursites = float(100*NumNormalJobsExitCode0foursites)/NumNormalJobs4sites
+    #print str(PercentageNormalJobsExitCode0foursites)+"%"
+
+    # Compute number of overflow jobs with exit code 84 (in 4 sites)
+    querystring = """
+    SELECT
+        COUNT(*), SUM(WallDuration)
+    from JobUsageRecord JUR 
+    JOIN Resource RESC on ((JUR.dbid = RESC.dbid) and (RESC.description="ExitCode"))
+    JOIN JobUsageRecord_Meta JURM on (JUR.dbid = JURM.dbid)
+    JOIN Probe P on (JURM.ProbeName = P.probename)
+    JOIN Site S on (P.siteid = S.siteid)
+    where
+      EndTime>="%s" and EndTime<"%s"
+      AND RESC.value = 84
+      AND HostDescription like '%%-overflow'
+      AND ResourceType="BatchPilot"
+      AND (SiteName like '%%Nebraska%%' or SiteName like '%%UCSD%%' or SiteName like '%%Purdue%%' or SiteName like '%%GLOW%%');
+     """
+    cursor.execute(querystring % (EarliestEndTime, LatestEndTime));
+    row = cursor.fetchone()
+    NumOverflowJobsExitCode84foursites = int(row[0])
+
+    # Compute percentage of number of overflow jobs with exit code 84 OVER number of overflow jobs (in 4 sites)
+    PercentageOverflowJobsExitCode84foursites = float(100*NumOverflowJobsExitCode84foursites)/NumOverflowJobs4sites
+    #print str(PercentageOverflowJobsExitCode84foursites)+"%"
+
+    if (NumOverflowJobsExitCode84foursites == 0):
+        WallDurationOverflowJobsExitCode84foursites = 0
+    else:
+        WallDurationOverflowJobsExitCode84foursites = float(row[1])
+
+    # Compute the percentage of walltime of overflow jobs with exit code 84 OVER walltime of overflow jobs (in 4 sites) 
+    if (WallDurationOverflowJobs4sites == 0):
+        PercentageWallDurationOverflowJobsExitCode84foursites  = 0
+    else:
+        PercentageWallDurationOverflowJobsExitCode84foursites = float(100*WallDurationOverflowJobsExitCode84foursites)/WallDurationOverflowJobs4sites
+    #print str(PercentageWallDurationOverflowJobsExitCode84foursites)+"%"
+
+    # Compute number of normal jobs with exit code 84 (in 4 sites)
+    querystring = """
+    SELECT
+        COUNT(*)
+    from JobUsageRecord JUR 
+    JOIN Resource RESC on ((JUR.dbid = RESC.dbid) and (RESC.description="ExitCode"))
+    JOIN JobUsageRecord_Meta JURM on (JUR.dbid = JURM.dbid)
+    JOIN Probe P on (JURM.ProbeName = P.probename)
+    JOIN Site S on (P.siteid = S.siteid)
+    where
+      EndTime>="%s" and EndTime<"%s"
+      AND RESC.value = 84
+      AND HostDescription NOT like '%%-overflow'
+      AND ResourceType="BatchPilot"
+      AND (SiteName like '%%Nebraska%%' or SiteName like '%%UCSD%%' or SiteName like '%%Purdue%%' or SiteName like '%%GLOW%%');
+     """
+    cursor.execute(querystring % (EarliestEndTime, LatestEndTime));
+    row = cursor.fetchone()
+    NumNormalJobsExitCode84foursites = int(row[0])
+
+    # Compute percentage of number of normal jobs with exit code 84 OVER number of normal jobs (in 4 sites)
+    if (NumNormalJobs4sites == 0):
+        PercentageNormalJobsExitCode84foursites = 0
+    else:
+        PercentageNormalJobsExitCode84foursites = float(100*NumNormalJobsExitCode84foursites)/NumNormalJobs4sites
+    #print str(PercentageNormalJobsExitCode84foursites)+"%"
 
     # Compute the percentage of number of overflow jobs whose efficiency greater than 80% (in 4 sites)
-    querystring = "SELECT COUNT(*) from JobUsageRecord JUR JOIN JobUsageRecord_Meta JURM on (JUR.dbid = JURM.dbid) JOIN Probe P on (JURM.ProbeName = P.probename) JOIN Site S on (P.siteid = S.siteid) where EndTime>\"20" + EarliestEndTime + "\" and EndTime<\"20" + LatestEndTime + "\"" + " and HostDescription like '%-overflow' and ResourceType=\"BatchPilot\" and (SiteName like '%Nebraska%' or SiteName like '%UCSD%' or SiteName like '%Purdue%' or SiteName like '%GLOW%') and (CpuUserDuration+CpuSystemDuration)/WallDuration>0.8;"
-    #print querystring
-    cursor.execute(querystring)
+    querystring = """
+    SELECT
+        COUNT(*)
+    from JobUsageRecord JUR 
+    JOIN JobUsageRecord_Meta JURM on (JUR.dbid = JURM.dbid)
+    JOIN Probe P on (JURM.ProbeName = P.probename)
+    JOIN Site S on (P.siteid = S.siteid)
+    where
+      EndTime>="%s" and EndTime<"%s"
+      AND HostDescription like '%%-overflow'
+      AND ResourceType="BatchPilot"
+      AND (SiteName like '%%Nebraska%%' or SiteName like '%%UCSD%%' or SiteName like '%%Purdue%%' or SiteName like '%%GLOW%%')
+      AND (CpuUserDuration+CpuSystemDuration)/WallDuration>0.8; 
+     """
+    cursor.execute(querystring % (EarliestEndTime, LatestEndTime));
     row = cursor.fetchone()
     NumEfficiencyGT80percentOverflowJobs4sites = int(row[0])
     if (NumOverflowJobs4sites == 0):
@@ -478,9 +556,21 @@ def QueryGratia(cursor, LatestEndTime, EarliestEndTime):
     #print str(PercentageEfficiencyGT80percentOverflowJobs4sites) + "%"
 
     # Compute the percentage of normal jobs whose efficiency greater than 80% (in 4 sites)
-    querystring = "SELECT COUNT(*) from JobUsageRecord JUR JOIN JobUsageRecord_Meta JURM on (JUR.dbid = JURM.dbid) JOIN Probe P on (JURM.ProbeName = P.probename) JOIN Site S on (P.siteid = S.siteid) where EndTime>\"20" + EarliestEndTime + "\" and EndTime<\"20" + LatestEndTime + "\"" + " and HostDescription NOT like '%-overflow' and ResourceType=\"BatchPilot\" and (SiteName like '%Nebraska%' or SiteName like '%UCSD%' or SiteName like '%Purdue%' or SiteName like '%GLOW%') and (CpuUserDuration+CpuSystemDuration)/WallDuration > 0.8; ";
-    #print querystring
-    cursor.execute(querystring)
+    querystring = """
+    SELECT
+        COUNT(*)
+    from JobUsageRecord JUR 
+    JOIN JobUsageRecord_Meta JURM on (JUR.dbid = JURM.dbid)
+    JOIN Probe P on (JURM.ProbeName = P.probename)
+    JOIN Site S on (P.siteid = S.siteid)
+    where
+      EndTime>="%s" and EndTime<"%s"
+      AND HostDescription NOT like '%%-overflow'
+      AND ResourceType="BatchPilot"
+      AND (SiteName like '%%Nebraska%%' or SiteName like '%%UCSD%%' or SiteName like '%%Purdue%%' or SiteName like '%%GLOW%%')
+      AND (CpuUserDuration+CpuSystemDuration)/WallDuration>0.8; 
+     """
+    cursor.execute(querystring % (EarliestEndTime, LatestEndTime));
     row = cursor.fetchone()
     NumEfficiencyGT80percentNormalJobs4sites = int(row[0])
     if (NumNormalJobs4sites == 0):
@@ -525,9 +615,18 @@ def FilterCondorJobs(cursor, LatestEndTime, EarliestEndTime):
            /store/mc/Fall11/WJetsToLNu_TuneZ2_7TeV-madgraph-tauola/AODSIM/PU_S6_START42_V14B-v1/0000/1EEE763D-1AF2-E011-8355-00304867D446.root
     '''
     # Find those overflow jobs whose exit code is 84 and resource type is BatchPilot 
-    querystring = "SELECT JUR.dbid, LocalJobId, CommonName, Host, StartTime, EndTime from JobUsageRecord JUR JOIN Resource RESC on ((JUR.dbid = RESC.dbid) and (RESC.description=\"ExitCode\")) JOIN JobUsageRecord_Meta JURM on JUR.dbid = JURM.dbid where EndTime >= \"20"+ EarliestEndTime + "\" and EndTime < \"20"+ LatestEndTime + "\" and ResourceType=\"BatchPilot\" and RESC.value=84 and HostDescription like '%-overflow';";
-    #print querystring+"\n";
-    cursor.execute(querystring);
+    querystring = """
+    SELECT JUR.dbid, LocalJobId, CommonName, Host, StartTime, EndTime
+    from JobUsageRecord JUR
+    JOIN Resource RESC on ((JUR.dbid = RESC.dbid) and (RESC.description="ExitCode"))
+    JOIN JobUsageRecord_Meta JURM on JUR.dbid = JURM.dbid
+    where 
+      EndTime >= "%s" AND EndTime < "%s"
+      AND ResourceType = "BatchPilot"
+      AND RESC.value = 84
+      AND HostDescription like '%%-overflow';
+    """
+    cursor.execute(querystring %(EarliestEndTime, LatestEndTime));
     # Handle each record
     numrows = int(cursor.rowcount)
     print "\nPossible Overflow Jobs with Exit Code 84 based on xrootd log\n"
