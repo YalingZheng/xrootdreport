@@ -37,9 +37,49 @@ import re
 import time
 from time import gmtime, strftime
 from datetime import datetime, date, timedelta;
+from pytz import timezone
 import MySQLdb
 import ConfigParser
 import string
+
+
+now = date.today();
+
+yesterday = date.today() - timedelta(1);
+
+'''
+Job Latest End Time
+this is the GMT time that UCSD glidein-2 mailer@glidein-2.t2.ucsd.edu
+central time 02:00:00 correponds to pacific time 00:00:00, which is the time that UCSD generates 
+report
+
+'''
+import pytz, datetime
+
+import os
+import time
+
+os.environ['TZ'] = "US/Pacific"
+time.tzset()
+UCSDoffset = time.timezone/3600
+
+os.environ['TZ'] = "US/Central"
+time.tzset()
+Nebraskaoffset = time.timezone/3600
+
+strftimestring = "%%Y-%%m-%%d %d:00:00"
+
+if (UCSDoffset>=10):
+    UCSDtimestring = "%%Y-%%m-%%d %d:00:00" % UCSDoffset
+else:
+    UCSDtimestring = "%%Y-%%m-%%d 0%d:00:00" % UCSDoffset
+#print UCSDtimestring
+
+LatestEndTime = now.strftime(UCSDtimestring)
+EarliestEndTime = yesterday.strftime(UCSDtimestring)
+
+#print LatestEndTime
+#print EarliestEndTime
 
 def ConnectDatabase():
     '''
@@ -56,21 +96,12 @@ def ConnectDatabase():
     # prepare a cursor oject using cursor() method
     cursor = db.cursor()
     
-    now = date.today();
-
-    yesterday = date.today() - timedelta(1);
-
-    # Job Latest End Time
-    LatestEndTime = now.strftime('%Y-%m-%d 14:00:00');
-    
-    # Job Earliest End time 
-    EarliestEndTime = yesterday.strftime('%Y-%m-%d 14:00:00');
-    
     # return database cursor, and job latest End time and earliest end time
-    return db, cursor, LatestEndTime, EarliestEndTime
+    return db, cursor
 
 
-def QueryGratia(cursor, LatestEndTime, EarliestEndTime):
+def QueryGratia(cursor):
+
     '''
     Query database gratia, and compute the following:
     for all sites (and sites in the form of %UCSD% %Purdue% %Nebraska% %GLOW% (Grid Laboratory of Wisconsin))
@@ -605,7 +636,8 @@ def QueryGratia(cursor, LatestEndTime, EarliestEndTime):
     print "Eff  >80%s: %.2f%s (vs %.2f%s)" % ("%", PercentageEfficiencyGT80percentOverflowJobs4sites, "%", PercentageEfficiencyGT80percentNormalJobs4sites, "%")
 
 
-def FilterCondorJobs(cursor, LatestEndTime, EarliestEndTime):
+def FilterCondorJobs(cursor):
+
     '''
     For each overflow job with exit code 84, we check possible correponding job in xrootd log
     and output the job in the following format
@@ -819,11 +851,11 @@ def main():
         if (filename.find("xrootd.log")>=0):
             buildJobLoginDisconnectionAndSoOnDictionary("/var/log/xrootd/"+filename)
     # connect the database server rcf-gratia.unl.edu
-    db, cursor, LatestEndTime, EarliestEndTime = ConnectDatabase()
+    db, cursor = ConnectDatabase()
     # query database gratia, and output statistic results
-    QueryGratia(cursor, LatestEndTime, EarliestEndTime)
+    QueryGratia(cursor)
     # check with xrootd log, and output possible overflow jobs with exit code 84
-    FilterCondorJobs(cursor, LatestEndTime, EarliestEndTime)
+    FilterCondorJobs(cursor)
     # disconnect the database
     db.close()
     # output result in the following format
