@@ -420,7 +420,7 @@ def QueryGratia(cursor):
         UserAndSystemDurationNormalJobs4sites = 0
         WallDurationNormalJobs4sites = 0
     else:
-        UserAndSystemDurationNormalJobs4sites = float(row[0])
+        UserAndSystemDurationNormalJobs4sites = float(row[2])
         WallDurationNormalJobs4sites = float(row[1])
     if (WallDurationNormalJobs4sites == 0):
         EfficiencyNormalJobs4sites = 0
