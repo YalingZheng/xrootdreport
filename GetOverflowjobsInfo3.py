@@ -35,28 +35,38 @@ import MySQLdb
 
 numFoundJobs = 0
 
-def FilterCondorJobs():
+gratiaQuery = """
+SELECT
+   JUR.dbid, LocalJobId, CommonName, Host, StartTime, EndTime
+FROM JobUsageRecord JUR
+LEFT JOIN Resource RESC ON ((JUR.dbid = RESC.dbid) AND (RESC.description="ExitCode"))
+LEFT JOIN JobUsageRecord_Meta JURM ON JUR.dbid = JURM.dbid
+WHERE
+   EndTime >= %s AND
+   EndTime < %s AND
+   ResourceType="BatchPilot" AND
+   RESC.value=84 AND
+   HostDescription LIKE "%%-overflow"
+"""
+
+def FilterCondorJobs(start_date):
     
     # open database connection, okay, succeed the first step
     db = MySQLdb.connect("rcf-gratia.unl.edu", "yzheng", "h39GHigNz", "gratia", 49152)
 
     # what we want 
-    # prepare a cursor oject using cursor() method
+    # prepare a cursor object using cursor() method
     cursor = db.cursor()
-	
-    now = date.today();
 
-    yesterday = date.today() - timedelta(1);
+    now = start_date
+    yesterday = start_date - timedelta(1)
 
-    LastestEndTime = now.strftime('%y-%m-%d 14:00:00');
-    
-    EarliestEndTime = yesterday.strftime('%y-%m-%d 14:00:00');
+    # WARNING: this queries for jobs that ended the *previous day* in Pacific time.
+    LastestEndTime = now.strftime('%Y-%m-%d 14:00:00')
+    EarliestEndTime = yesterday.strftime('%Y-%m-%d 14:00:00')
 
-    querystring = "SELECT JUR.dbid, LocalJobId, CommonName, Host, StartTime, EndTime from JobUsageRecord JUR LEFT JOIN Resource RESC on ((JUR.dbid = RESC.dbid) and (RESC.description=\"ExitCode\")) LEFT JOIN JobUsageRecord_Meta JURM on JUR.dbid = JURM.dbid where EndTime >= \"20"+ EarliestEndTime + "\" and EndTime < \"20"+ LastestEndTime + "\" and ResourceType=\"BatchPilot\" and RESC.value=84 and HostDescription like '%-overflow';";
-
-    print querystring;
-
-    cursor.execute(querystring);
+    print gratiaQuery
+    cursor.execute(gratiaQuery, (LastestEndTime, EarliestEndTime))
 
     # Now we want to handle each record
     numrows = int(cursor.rowcount)
@@ -64,7 +74,7 @@ def FilterCondorJobs():
     #print "... the following are overflow jobs within 36 hours ... "
     for i in range(numrows):
         row = cursor.fetchone()
-        #print row[0], row[1], row[2], row[3], row[4], row[5]
+        print row[0], row[1], row[2], row[3], row[4], row[5]
         localjobid = row[1]
         commonname = row[2]
         host = row[3]
@@ -73,7 +83,7 @@ def FilterCondorJobs():
 	gmstarttime = starttime
 	gmendtime = endtime
 	#print host
-	if (host!="NULL"):
+	if host != "NULL":
             matchedflag = CheckJobMatchInXrootdLog(localjobid, commonname, host, starttime, endtime, gmstarttime, gmendtime)
     #print "... end of the overflow jobs in 36 hours ... "
     # disconnect from server
@@ -106,8 +116,11 @@ def CheckJobMatchInXrootdLog(localjobid, commonname, host, starttime, endtime, g
     # now what?
     # print starttime
     # print endtime
-    jobBeginAt = int(time.mktime(starttime.timetuple())) - 6  * 3600
-    jobEndAt = int(time.mktime(endtime.timetuple())) - 6 * 3600
+    # mktime assumes local time, but starttime is in UTC.
+    # Use "utctimetuple" to force it to a timestamp *forcing no DST*, and
+    # subtract off the timezone.  This procedure is DST-safe.
+    jobBeginAt = int(time.mktime(starttime.utctimetuple())) - time.timezone
+    jobEndAt = int(time.mktime(endtime.utctimetuple())) - time.timezone
     flag = None
     if possiblejobs:
         for job in possiblejobs:
@@ -170,13 +183,17 @@ hostnameJobsDictionary  = {}
 
 def buildJobLoginDisconnectionAndSoOnDictionary(filename):
     infile = open(filename)
+    loginRegexp = re.compile("(\d{2})(\d{2})(\d{2}) (\d{2}:\d{2}:\d{2}) \d+ XrootdXeq: (\S+) login\s*")
+    disconnectRegexp = re.compile("(\d{2})(\d{2})(\d{2}) (\d{1,2}:\d{2}:\d{2}) \d+ XrootdXeq: (\S+) disc \d{1,2}:\d{2}:\d{2}\n")
+    redirectRegexp = re.compile("\d{6} \d{1,2}:\d{2}:\d{2} \d+ Decode xrootd redirects (\S+) to (\S+) (\S+)\n")
+
     # we scan this line
     while 1:
         line = infile.readline()
         if not line:
             break
         # we scan the xrootdlog file, and we build a hash table
-        matchflagLogin = re.match("(\d{2})(\d{2})(\d{2}) (\d{2}:\d{2}:\d{2}) \d+ XrootdXeq: (\S+) login\s*", line, 0)
+        matchflagLogin = loginRegexp.match(line, 0)
         if matchflagLogin:
             # we try to build a dictionary
             TheLoginDatetime = "20"+matchflagLogin.group(1)+"-"+matchflagLogin.group(2)+"-"+matchflagLogin.group(3)+" "+matchflagLogin.group(4); 
@@ -201,11 +218,11 @@ def buildJobLoginDisconnectionAndSoOnDictionary(filename):
             #print currenthostname
             #print hostnameJobsDictionary[currenthostname]
         else:
-            matchflagDisconnection = re.match("(\d{2})(\d{2})(\d{2}) (\d{1,2}:\d{2}:\d{2}) \d+ XrootdXeq: (\S+) disc \d{1,2}:\d{2}:\d{2}\n", line)
+            matchflagDisconnection = disconnectRegexp.match(line)
             if matchflagDisconnection:
                 # we try to 
-                TheDisconnectionDatetime = "20"+matchflagDisconnection.group(1)+"-"+matchflagDisconnection.group(2)+"-"+matchflagDisconnection.group(3)+" "+matchflagDisconnection.group(4); 
-                disconnectiontimestamp =  int(time.mktime(time.strptime(TheDisconnectionDatetime, '%Y-%m-%d %H:%M:%S')))
+                TheDisconnectionDatetime = matchflagDisconnection.group(1)+"-"+matchflagDisconnection.group(2)+"-"+matchflagDisconnection.group(3)+" "+matchflagDisconnection.group(4); 
+                disconnectiontimestamp =  int(time.mktime(time.strptime(TheDisconnectionDatetime, '%y-%m-%d %H:%M:%S')))
                 jobid = matchflagDisconnection.group(5)
                 curjobLoginDisconnectionAndSoOn = jobLoginDisconnectionAndSoOnDictionary.get(jobid, None)
                 if (not curjobLoginDisconnectionAndSoOn):
@@ -213,7 +230,7 @@ def buildJobLoginDisconnectionAndSoOnDictionary(filename):
                 curjobLoginDisconnectionAndSoOn[1] = disconnectiontimestamp
                 jobLoginDisconnectionAndSoOnDictionary[jobid] = curjobLoginDisconnectionAndSoOn
             else:
-                matchflagFilenameRedirectionsite = re.match("\d{6} \d{1,2}:\d{2}:\d{2} \d+ Decode xrootd redirects (\S+) to (\S+) (\S+)\n", line)
+                matchflagFilenameRedirectionsite = redirectRegexp.match(line)
                 if matchflagFilenameRedirectionsite:
                     # we try to
                     jobid = matchflagFilenameRedirectionsite.group(1)
@@ -234,31 +251,35 @@ def buildJobLoginDisconnectionAndSoOnDictionary(filename):
     #for key, value in hostnameJobsDictionary.iteritems():
     # print key
     # print value
-    
-# Get all the filenames in the form of xrootd.log
-# then for each file, build the hash table
-filenames = os.listdir("/var/log/xrootd")
-for filename in filenames:
-    if (filename.find("xrootd.log")>=0):
-	buildJobLoginDisconnectionAndSoOnDictionary("/var/log/xrootd/"+filename)
-FilterCondorJobs()
 
-# the following two hash tables are defined so that we can output the following content easier:
-# for cmssrv32.fnal.gov (a redirection site)
-#   for user /....../CN=Brian (a x509UserProxyVOName)
-#       1234.0, 8:00-12:00, /store/foo
-# redirectionsite_vs_users_dictionary = {}
-# redirectionsiteuser_vs_jobs_dictionary = {}
 
-# Now, we want to print out the result
+def main():
 
-# how do I print out dictionary results
+    # Get all the filenames in the form of xrootd.log
+    # then for each file, build the hash table
+    filenames = os.listdir("/var/log/xrootd")
+    for filename in filenames:
+        if (filename.find("xrootd.log")>=0):
+            buildJobLoginDisconnectionAndSoOnDictionary("/var/log/xrootd/"+filename)
 
-for key,value in redirectionsite_vs_users_dictionary.iteritems():
-    print "for "+ key+":"
-    for oneuser in set(value):
-        print "    for "+ oneuser+":"
-        cur_key_value = key + "."+oneuser
-        for onejob in redirectionsiteuser_vs_jobs_dictionary[cur_key_value]:
-            print "        "+onejob
-# Cool, we are done 
+    FilterCondorJobs(date.today())
+
+    # the following two hash tables are defined so that we can output the following content easier:
+    # for cmssrv32.fnal.gov (a redirection site)
+    #   for user /....../CN=Brian (a x509UserProxyVOName)
+    #       1234.0, 8:00-12:00, /store/foo
+    # redirectionsite_vs_users_dictionary = {}
+    # redirectionsiteuser_vs_jobs_dictionary = {}
+
+    # Now, we want to print out the result
+    for key,value in redirectionsite_vs_users_dictionary.iteritems():
+        print "for "+ key+":"
+        for oneuser in set(value):
+            print "    for "+ oneuser+":"
+            cur_key_value = key + "."+oneuser
+            for onejob in redirectionsiteuser_vs_jobs_dictionary[cur_key_value]:
+                print "        "+onejob
+
+if __name__ == '__main__':
+    main()
+
