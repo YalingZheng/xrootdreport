@@ -42,11 +42,6 @@ import MySQLdb
 import ConfigParser
 import string
 
-
-now = date.today();
-
-yesterday = date.today() - timedelta(1);
-
 '''
 Job Latest End Time
 this is the GMT time that UCSD glidein-2 mailer@glidein-2.t2.ucsd.edu
@@ -54,7 +49,6 @@ central time 02:00:00 correponds to pacific time 00:00:00, which is the time tha
 report
 
 '''
-import pytz, datetime
 
 import os
 import time
@@ -63,20 +57,18 @@ os.environ['TZ'] = "US/Pacific"
 time.tzset()
 UCSDoffset = time.timezone/3600
 
+today = datetime.today()
+# NOTE - UCSD runs this on a 24-hour period, starting at 6am local.
+# We must convert to a Unix epoch including DST, add the UCSD offset,
+# then to a UTC datetime.
+UCSD_start = datetime(today.year, today.month, today.day, 6, 0, 0)
+UCSD_start_epoch = int(time.mktime(UCSD_start.timetuple())) + UCSDoffset/3600
+LatestEndTime = datetime.utcfromtimestamp(UCSD_start_epoch)
+EarliestEndTime = LatestEndTime - timedelta(1, 0)
+
 os.environ['TZ'] = "US/Central"
 time.tzset()
 Nebraskaoffset = time.timezone/3600
-
-strftimestring = "%%Y-%%m-%%d %d:00:00"
-
-if (UCSDoffset>=10):
-    UCSDtimestring = "%%Y-%%m-%%d %d:00:00" % UCSDoffset
-else:
-    UCSDtimestring = "%%Y-%%m-%%d 0%d:00:00" % UCSDoffset
-#print UCSDtimestring
-
-LatestEndTime = now.strftime(UCSDtimestring)
-EarliestEndTime = yesterday.strftime(UCSDtimestring)
 
 #print LatestEndTime
 #print EarliestEndTime
@@ -118,18 +110,23 @@ def QueryGratia(cursor):
     (5) the percentage of number of overflow jobs whose efficiency is greater than 80%, 
     the percentage of number of normal jobs whose efficiency is greater than 80%
     '''
-    
+
+    # The database keeps its begin/end times in UTC.
+
     # Compute number (wallduration, CpuUserDuration+CpuSystemDuration) of overflow jobs in all sites
     querystring = """
     SELECT
         COUNT(*), SUM(WallDuration), SUM(CpuUserDuration+CpuSystemDuration)
-    from JobUsageRecord
+    from JobUsageRecord JUR
+    JOIN Resource RESC on ((JUR.dbid = RESC.dbid) and (RESC.description="ExitCode"))
+    join JobUsageRecord_Meta JURM on JURM.dbid=JUR.dbid
     where
-      EndTime>="%s" and EndTime<"%s"
+      EndTime>=%s and EndTime<%s
       AND HostDescription like '%%-overflow'
-      AND ResourceType="BatchPilot";
+      AND ResourceType="BatchPilot"
+      AND JURM.ProbeName="condor:glidein-2.t2.ucsd.edu"
      """
-    cursor.execute(querystring % (EarliestEndTime, LatestEndTime));
+    cursor.execute(querystring, (EarliestEndTime, LatestEndTime));
     row = cursor.fetchone();
     NumOverflowJobs = int(row[0])
     if (NumOverflowJobs==0):
@@ -149,13 +146,16 @@ def QueryGratia(cursor):
     querystring = """
     SELECT
         COUNT(*), SUM(WallDuration), SUM(CpuUserDuration+CpuSystemDuration)
-    from JobUsageRecord
+    from JobUsageRecord JUR
+    JOIN Resource RESC on ((JUR.dbid = RESC.dbid) and (RESC.description="ExitCode"))
+    join JobUsageRecord_Meta JURM on JURM.dbid=JUR.dbid
     where
-      EndTime>="%s" and EndTime<"%s"
+      EndTime>=%s and EndTime<%s
       AND HostDescription NOT like '%%-overflow'
-      AND ResourceType="BatchPilot";
+      AND ResourceType="BatchPilot"
+      AND JURM.ProbeName="condor:glidein-2.t2.ucsd.edu"
      """
-    cursor.execute(querystring % (EarliestEndTime, LatestEndTime));
+    cursor.execute(querystring, (EarliestEndTime, LatestEndTime));
     row = cursor.fetchone();
     NumNormalJobs = int(row[0])
     NumAllJobs = NumOverflowJobs + NumNormalJobs
@@ -194,13 +194,15 @@ def QueryGratia(cursor):
         COUNT(*), SUM(WallDuration)
     from JobUsageRecord JUR 
     JOIN Resource RESC on ((JUR.dbid = RESC.dbid) and (RESC.description="ExitCode"))
+    join JobUsageRecord_Meta JURM on JURM.dbid=JUR.dbid
     where
-      EndTime>="%s" and EndTime<"%s"
+      EndTime>=%s and EndTime<%s
       AND RESC.value = 0
       AND HostDescription like '%%-overflow'
-      AND ResourceType="BatchPilot";
+      AND ResourceType="BatchPilot"
+      AND JURM.ProbeName="condor:glidein-2.t2.ucsd.edu"
      """
-    cursor.execute(querystring % (EarliestEndTime, LatestEndTime));
+    cursor.execute(querystring, (EarliestEndTime, LatestEndTime));
     row = cursor.fetchone()
     NumOverflowJobsExitCode0 = int(row[0])
     if (NumOverflowJobs==0):
@@ -225,13 +227,15 @@ def QueryGratia(cursor):
         COUNT(*)
     from JobUsageRecord JUR 
     JOIN Resource RESC on ((JUR.dbid = RESC.dbid) and (RESC.description="ExitCode"))
+    join JobUsageRecord_Meta JURM on JURM.dbid=JUR.dbid
     where
-      EndTime>="%s" and EndTime<"%s"
+      EndTime>=%s and EndTime<%s
       AND RESC.value = 0
       AND HostDescription NOT like '%%-overflow'
-      AND ResourceType="BatchPilot";
+      AND ResourceType="BatchPilot"
+      AND JURM.ProbeName="condor:glidein-2.t2.ucsd.edu"
      """
-    cursor.execute(querystring % (EarliestEndTime, LatestEndTime));
+    cursor.execute(querystring, (EarliestEndTime, LatestEndTime));
     row = cursor.fetchone()
     NumNormalJobsExitCode0 = int(row[0])
     if (NumNormalJobs==0):
@@ -246,13 +250,15 @@ def QueryGratia(cursor):
         COUNT(*), SUM(WallDuration)
     from JobUsageRecord JUR 
     JOIN Resource RESC on ((JUR.dbid = RESC.dbid) and (RESC.description="ExitCode"))
+    join JobUsageRecord_Meta JURM on JURM.dbid=JUR.dbid
     where
-      EndTime>="%s" and EndTime<"%s"
+      EndTime>=%s and EndTime<%s
       AND RESC.value = 84
       AND HostDescription like '%%-overflow'
-      AND ResourceType="BatchPilot";
+      AND ResourceType="BatchPilot"
+      AND JURM.ProbeName="condor:glidein-2.t2.ucsd.edu"
      """
-    cursor.execute(querystring % (EarliestEndTime, LatestEndTime));
+    cursor.execute(querystring, (EarliestEndTime, LatestEndTime));
     row = cursor.fetchone()
     NumOverflowJobsExitCode84 = int(row[0])
 
@@ -280,13 +286,15 @@ def QueryGratia(cursor):
         COUNT(*)
     from JobUsageRecord JUR 
     JOIN Resource RESC on ((JUR.dbid = RESC.dbid) and (RESC.description="ExitCode"))
+    join JobUsageRecord_Meta JURM on JURM.dbid=JUR.dbid
     where
-      EndTime>="%s" and EndTime<"%s"
+      EndTime>=%s and EndTime<%s
       AND RESC.value = 84
       AND HostDescription NOT like '%%-overflow'
-      AND ResourceType="BatchPilot";
+      AND ResourceType="BatchPilot"
+      AND JURM.ProbeName="condor:glidein-2.t2.ucsd.edu"
      """
-    cursor.execute(querystring % (EarliestEndTime, LatestEndTime));
+    cursor.execute(querystring, (EarliestEndTime, LatestEndTime));
     NumNormalJobsExitCode84 = int(row[0])
 
     # Compute the percentage of number of normal jobs with exit code 84 OVER number of normal jobs (in all sites) 
@@ -300,14 +308,17 @@ def QueryGratia(cursor):
     querystring = """
     SELECT
         COUNT(*)
-    from JobUsageRecord 
+    from JobUsageRecord JUR
+    JOIN Resource RESC on ((JUR.dbid = RESC.dbid) and (RESC.description="ExitCode"))
+    join JobUsageRecord_Meta JURM on JURM.dbid=JUR.dbid
     where
-      EndTime>="%s" and EndTime<"%s"
+      EndTime>=%s and EndTime<%s
       AND HostDescription like '%%-overflow'
       AND ResourceType="BatchPilot"
-      AND (CpuUserDuration+CpuSystemDuration)/WallDuration > 0.8;
+      AND (CpuUserDuration+CpuSystemDuration)/WallDuration > 0.8
+      AND JURM.ProbeName="condor:glidein-2.t2.ucsd.edu"
      """
-    cursor.execute(querystring % (EarliestEndTime, LatestEndTime));
+    cursor.execute(querystring, (EarliestEndTime, LatestEndTime));
     row = cursor.fetchone()
     NumEfficiencyGT80percentOverflowJobs = int(row[0])
     if (NumOverflowJobs == 0):
@@ -320,14 +331,17 @@ def QueryGratia(cursor):
     querystring = """
     SELECT
         COUNT(*)
-    from JobUsageRecord  
+    from JobUsageRecord JUR
+    join JobUsageRecord_Meta JURM on JURM.dbid=JUR.dbid
+    JOIN Resource RESC on ((JUR.dbid = RESC.dbid) and (RESC.description="ExitCode"))
     where
-      EndTime>="%s" and EndTime<"%s"
+      EndTime>=%s and EndTime<%s
       AND HostDescription NOT like '%%-overflow'
       AND ResourceType="BatchPilot"
-      AND (CpuUserDuration+CpuSystemDuration)/WallDuration > 0.8;
+      AND (CpuUserDuration+CpuSystemDuration)/WallDuration > 0.8
+      AND JURM.ProbeName="condor:glidein-2.t2.ucsd.edu"
      """
-    cursor.execute(querystring % (EarliestEndTime, LatestEndTime));
+    cursor.execute(querystring, (EarliestEndTime, LatestEndTime));
     row = cursor.fetchone()
     NumEfficiencyGT80percentNormalJobs = int(row[0])
     if (NumNormalJobs == 0):
@@ -342,14 +356,16 @@ def QueryGratia(cursor):
         COUNT(*), SUM(WallDuration), SUM(CpuUserDuration+CpuSystemDuration)
     from JobUsageRecord JUR 
     JOIN JobUsageRecord_Meta JURM on (JUR.dbid = JURM.dbid)
+    JOIN Resource RESC on ((JUR.dbid = RESC.dbid) and (RESC.description="ExitCode"))
     JOIN Probe P on (JURM.ProbeName = P.probename)
     JOIN Site S on (P.siteid = S.siteid)
     where
-      EndTime>="%s" and EndTime<"%s"
+      EndTime>=%s and EndTime<%s
       AND ResourceType="BatchPilot"
-      AND (SiteName like '%%Nebraska%%' or SiteName like '%%UCSD%%' or SiteName like '%%Purdue%%' or SiteName like '%%GLOW%%');
+      AND (HostDescription like '%%Nebraska%%' or HostDescription like '%%UCSD%%' or HostDescription like '%%Purdue%%' or HostDescription like '%%GLOW%%')
+      AND JURM.ProbeName="condor:glidein-2.t2.ucsd.edu"
      """
-    cursor.execute(querystring % (EarliestEndTime, LatestEndTime));
+    cursor.execute(querystring, (EarliestEndTime, LatestEndTime));
     row = cursor.fetchone()
     NumAllJobs4sites = int(row[0])
     if (NumAllJobs4sites==0):
@@ -363,15 +379,17 @@ def QueryGratia(cursor):
         COUNT(*), SUM(WallDuration), SUM(CpuUserDuration+CpuSystemDuration)
     from JobUsageRecord JUR 
     JOIN JobUsageRecord_Meta JURM on (JUR.dbid = JURM.dbid)
+    JOIN Resource RESC on ((JUR.dbid = RESC.dbid) and (RESC.description="ExitCode"))
     JOIN Probe P on (JURM.ProbeName = P.probename)
     JOIN Site S on (P.siteid = S.siteid)
     where
-      EndTime>="%s" and EndTime<"%s"
+      EndTime>=%s and EndTime<%s
       AND HostDescription like '%%-overflow'
       AND ResourceType="BatchPilot"
-      AND (SiteName like '%%Nebraska%%' or SiteName like '%%UCSD%%' or SiteName like '%%Purdue%%' or SiteName like '%%GLOW%%');
+      AND (HostDescription like '%%Nebraska%%' or HostDescription like '%%UCSD%%' or HostDescription like '%%Purdue%%' or HostDescription like '%%GLOW%%')
+      AND JURM.ProbeName="condor:glidein-2.t2.ucsd.edu"
      """
-    cursor.execute(querystring % (EarliestEndTime, LatestEndTime));
+    cursor.execute(querystring, (EarliestEndTime, LatestEndTime));
     row = cursor.fetchone()
     NumOverflowJobs4sites = int(row[0])
     if (NumOverflowJobs4sites==0):
@@ -404,15 +422,17 @@ def QueryGratia(cursor):
         COUNT(*), SUM(WallDuration), SUM(CpuUserDuration+CpuSystemDuration)
     from JobUsageRecord JUR
     JOIN JobUsageRecord_Meta JURM on (JUR.dbid = JURM.dbid)
+    JOIN Resource RESC on ((JUR.dbid = RESC.dbid) and (RESC.description="ExitCode"))
     JOIN Probe P on (JURM.ProbeName = P.probename)
     JOIN Site S on (P.siteid = S.siteid)
     where
-      EndTime>="%s" and EndTime<"%s"
+      EndTime>=%s and EndTime<%s
       AND HostDescription NOT like '%%-overflow'
       AND ResourceType="BatchPilot"
-      AND (SiteName like '%%Nebraska%%' or SiteName like '%%UCSD%%' or SiteName like '%%Purdue%%' or SiteName like '%%GLOW%%');
+      AND (HostDescription like '%%Nebraska%%' or HostDescription like '%%UCSD%%' or HostDescription like '%%Purdue%%' or HostDescription like '%%GLOW%%')
+      AND JURM.ProbeName="condor:glidein-2.t2.ucsd.edu"
      """
-    cursor.execute(querystring % (EarliestEndTime, LatestEndTime));
+    cursor.execute(querystring, (EarliestEndTime, LatestEndTime));
     row = cursor.fetchone()
     NumNormalJobs4sites = int(row[0])
     #print str(NumNormalJobs4sites)
@@ -445,13 +465,14 @@ def QueryGratia(cursor):
     JOIN Probe P on (JURM.ProbeName = P.probename)
     JOIN Site S on (P.siteid = S.siteid)
     where
-      EndTime>="%s" and EndTime<"%s"
+      EndTime>=%s and EndTime<%s
       AND RESC.value = 0
       AND HostDescription like '%%-overflow'
       AND ResourceType="BatchPilot"
-      AND (SiteName like '%%Nebraska%%' or SiteName like '%%UCSD%%' or SiteName like '%%Purdue%%' or SiteName like '%%GLOW%%');
+      AND (HostDescription like '%%Nebraska%%' or HostDescription like '%%UCSD%%' or HostDescription like '%%Purdue%%' or HostDescription like '%%GLOW%%')
+      AND JURM.ProbeName="condor:glidein-2.t2.ucsd.edu"
      """
-    cursor.execute(querystring % (EarliestEndTime, LatestEndTime));
+    cursor.execute(querystring, (EarliestEndTime, LatestEndTime));
     row = cursor.fetchone()
     NumOverflowJobsExitCode0foursites = int(row[0])
 
@@ -482,13 +503,14 @@ def QueryGratia(cursor):
     JOIN Probe P on (JURM.ProbeName = P.probename)
     JOIN Site S on (P.siteid = S.siteid)
     where
-      EndTime>="%s" and EndTime<"%s"
+      EndTime>=%s and EndTime<%s
       AND RESC.value = 0
       AND HostDescription NOT like '%%-overflow'
       AND ResourceType="BatchPilot"
-      AND (SiteName like '%%Nebraska%%' or SiteName like '%%UCSD%%' or SiteName like '%%Purdue%%' or SiteName like '%%GLOW%%');
+      AND (HostDescription like '%%Nebraska%%' or HostDescription like '%%UCSD%%' or HostDescription like '%%Purdue%%' or HostDescription like '%%GLOW%%')
+      AND JURM.ProbeName="condor:glidein-2.t2.ucsd.edu"
      """
-    cursor.execute(querystring % (EarliestEndTime, LatestEndTime));
+    cursor.execute(querystring, (EarliestEndTime, LatestEndTime));
     row = cursor.fetchone()
     NumNormalJobsExitCode0foursites = int(row[0])
 
@@ -509,13 +531,14 @@ def QueryGratia(cursor):
     JOIN Probe P on (JURM.ProbeName = P.probename)
     JOIN Site S on (P.siteid = S.siteid)
     where
-      EndTime>="%s" and EndTime<"%s"
+      EndTime>=%s and EndTime<%s
       AND RESC.value = 84
       AND HostDescription like '%%-overflow'
       AND ResourceType="BatchPilot"
-      AND (SiteName like '%%Nebraska%%' or SiteName like '%%UCSD%%' or SiteName like '%%Purdue%%' or SiteName like '%%GLOW%%');
+      AND (HostDescription like '%%Nebraska%%' or HostDescription like '%%UCSD%%' or HostDescription like '%%Purdue%%' or HostDescription like '%%GLOW%%')
+      AND JURM.ProbeName="condor:glidein-2.t2.ucsd.edu"
      """
-    cursor.execute(querystring % (EarliestEndTime, LatestEndTime));
+    cursor.execute(querystring, (EarliestEndTime, LatestEndTime));
     row = cursor.fetchone()
     NumOverflowJobsExitCode84foursites = int(row[0])
 
@@ -545,13 +568,14 @@ def QueryGratia(cursor):
     JOIN Probe P on (JURM.ProbeName = P.probename)
     JOIN Site S on (P.siteid = S.siteid)
     where
-      EndTime>="%s" and EndTime<"%s"
+      EndTime>=%s and EndTime<%s
       AND RESC.value = 84
       AND HostDescription NOT like '%%-overflow'
       AND ResourceType="BatchPilot"
-      AND (SiteName like '%%Nebraska%%' or SiteName like '%%UCSD%%' or SiteName like '%%Purdue%%' or SiteName like '%%GLOW%%');
+      AND (HostDescription like '%%Nebraska%%' or HostDescription like '%%UCSD%%' or HostDescription like '%%Purdue%%' or HostDescription like '%%GLOW%%')
+      AND JURM.ProbeName="condor:glidein-2.t2.ucsd.edu"
      """
-    cursor.execute(querystring % (EarliestEndTime, LatestEndTime));
+    cursor.execute(querystring, (EarliestEndTime, LatestEndTime));
     row = cursor.fetchone()
     NumNormalJobsExitCode84foursites = int(row[0])
 
@@ -568,16 +592,18 @@ def QueryGratia(cursor):
         COUNT(*)
     from JobUsageRecord JUR 
     JOIN JobUsageRecord_Meta JURM on (JUR.dbid = JURM.dbid)
+    JOIN Resource RESC on ((JUR.dbid = RESC.dbid) and (RESC.description="ExitCode"))
     JOIN Probe P on (JURM.ProbeName = P.probename)
     JOIN Site S on (P.siteid = S.siteid)
     where
-      EndTime>="%s" and EndTime<"%s"
+      EndTime>=%s and EndTime<%s
       AND HostDescription like '%%-overflow'
       AND ResourceType="BatchPilot"
-      AND (SiteName like '%%Nebraska%%' or SiteName like '%%UCSD%%' or SiteName like '%%Purdue%%' or SiteName like '%%GLOW%%')
-      AND (CpuUserDuration+CpuSystemDuration)/WallDuration>0.8; 
+      AND (HostDescription like '%%Nebraska%%' or HostDescription like '%%UCSD%%' or HostDescription like '%%Purdue%%' or HostDescription like '%%GLOW%%')
+      AND (CpuUserDuration+CpuSystemDuration)/WallDuration>0.8
+      AND JURM.ProbeName="condor:glidein-2.t2.ucsd.edu"
      """
-    cursor.execute(querystring % (EarliestEndTime, LatestEndTime));
+    cursor.execute(querystring, (EarliestEndTime, LatestEndTime));
     row = cursor.fetchone()
     NumEfficiencyGT80percentOverflowJobs4sites = int(row[0])
     if (NumOverflowJobs4sites == 0):
@@ -592,16 +618,18 @@ def QueryGratia(cursor):
         COUNT(*)
     from JobUsageRecord JUR 
     JOIN JobUsageRecord_Meta JURM on (JUR.dbid = JURM.dbid)
+    JOIN Resource RESC on ((JUR.dbid = RESC.dbid) and (RESC.description="ExitCode"))
     JOIN Probe P on (JURM.ProbeName = P.probename)
     JOIN Site S on (P.siteid = S.siteid)
     where
-      EndTime>="%s" and EndTime<"%s"
+      EndTime>=%s and EndTime<%s
       AND HostDescription NOT like '%%-overflow'
       AND ResourceType="BatchPilot"
-      AND (SiteName like '%%Nebraska%%' or SiteName like '%%UCSD%%' or SiteName like '%%Purdue%%' or SiteName like '%%GLOW%%')
-      AND (CpuUserDuration+CpuSystemDuration)/WallDuration>0.8; 
+      AND (HostDescription like '%%Nebraska%%' or HostDescription like '%%UCSD%%' or HostDescription like '%%Purdue%%' or HostDescription like '%%GLOW%%')
+      AND (CpuUserDuration+CpuSystemDuration)/WallDuration>0.8
+      AND JURM.ProbeName="condor:glidein-2.t2.ucsd.edu"
      """
-    cursor.execute(querystring % (EarliestEndTime, LatestEndTime));
+    cursor.execute(querystring, (EarliestEndTime, LatestEndTime));
     row = cursor.fetchone()
     NumEfficiencyGT80percentNormalJobs4sites = int(row[0])
     if (NumNormalJobs4sites == 0):
@@ -646,6 +674,7 @@ def FilterCondorJobs(cursor):
           408235.127, 2012-04-05 20:03:15 GMT--2012-04-05 20:13:20 GMT,
            /store/mc/Fall11/WJetsToLNu_TuneZ2_7TeV-madgraph-tauola/AODSIM/PU_S6_START42_V14B-v1/0000/1EEE763D-1AF2-E011-8355-00304867D446.root
     '''
+
     # Find those overflow jobs whose exit code is 84 and resource type is BatchPilot 
     querystring = """
     SELECT JUR.dbid, LocalJobId, CommonName, Host, StartTime, EndTime
@@ -653,12 +682,12 @@ def FilterCondorJobs(cursor):
     JOIN Resource RESC on ((JUR.dbid = RESC.dbid) and (RESC.description="ExitCode"))
     JOIN JobUsageRecord_Meta JURM on JUR.dbid = JURM.dbid
     where 
-      EndTime >= "%s" AND EndTime < "%s"
+      EndTime >= %s AND EndTime < %s
       AND ResourceType = "BatchPilot"
       AND RESC.value = 84
       AND HostDescription like '%%-overflow';
     """
-    cursor.execute(querystring %(EarliestEndTime, LatestEndTime));
+    cursor.execute(querystring, (EarliestEndTime, LatestEndTime));
     # Handle each record
     numrows = int(cursor.rowcount)
     print "\nPossible Overflow Jobs with Exit Code 84 based on xrootd log\n"
@@ -712,9 +741,13 @@ def CheckJobMatchInXrootdLog(localjobid, commonname, host, starttime, endtime, g
         abbHostname = hostnameitems[0]
         possiblejobs = hostnameJobsDictionary.get(abbHostname, None)
     # print possiblejobs
-    jobBeginAt = int(time.mktime(starttime.utctimetuple())) - time.timezone
-    jobEndAt = int(time.mktime(endtime.utctimetuple())) - time.timezone
+    # mktime assumes local time, but starttime is in UTC.
+    # Use "utctimetuple" to force it to a timestamp *forcing no DST*, and
+    # subtract off the timezone.  This procedure is DST-safe.
+    jobBeginAt = int(time.mktime(starttime.utctimetuple())) - Nebraskaoffset * 3600
+    jobEndAt = int(time.mktime(endtime.utctimetuple())) - Nebraskaoffset * 3600
     flag = None
+    time_now = time.time()
     if possiblejobs:
         for job in possiblejobs:
             #print job
@@ -726,7 +759,7 @@ def CheckJobMatchInXrootdLog(localjobid, commonname, host, starttime, endtime, g
             else:
                 loginTime = int(retrieved_loginTime)
             if (not retrieved_disconnectionTime):
-                disconnectionTime = int(time.time())+100
+                disconnectionTime = time_now + 100
             else:
                 disconnectionTime = int(retrieved_disconnectionTime)
             if ((loginTime >= jobBeginAt+0) and (loginTime <= jobBeginAt + 600)):
@@ -844,16 +877,16 @@ def buildJobLoginDisconnectionAndSoOnDictionary(filename):
     # print value
 
 def main():    
+    # connect the database server rcf-gratia.unl.edu
+    db, cursor = ConnectDatabase()
+    # query database gratia, and output statistic results
+    QueryGratia(cursor)
     # Get all the filenames in the form of xrootd.log
     # then for each file, build the hash table
     filenames = os.listdir("/var/log/xrootd")
     for filename in filenames:
         if (filename.find("xrootd.log")>=0):
             buildJobLoginDisconnectionAndSoOnDictionary("/var/log/xrootd/"+filename)
-    # connect the database server rcf-gratia.unl.edu
-    db, cursor = ConnectDatabase()
-    # query database gratia, and output statistic results
-    QueryGratia(cursor)
     # check with xrootd log, and output possible overflow jobs with exit code 84
     FilterCondorJobs(cursor)
     # disconnect the database
