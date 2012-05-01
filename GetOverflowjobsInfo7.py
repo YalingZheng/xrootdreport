@@ -41,17 +41,11 @@ from pytz import timezone
 import MySQLdb
 import ConfigParser
 import string
-
-'''
-Job Latest End Time
-this is the GMT time that UCSD glidein-2 mailer@glidein-2.t2.ucsd.edu
-central time 02:00:00 correponds to pacific time 00:00:00, which is the time that UCSD generates 
-report
-
-'''
-
-import os
-import time
+# package of parsing options
+import optparse
+# package of sending emails
+import smtplib
+from email.MIMEText import MIMEText
 
 os.environ['TZ'] = "US/Pacific"
 time.tzset()
@@ -70,16 +64,29 @@ os.environ['TZ'] = "US/Central"
 time.tzset()
 Nebraskaoffset = time.timezone/3600
 
-#print LatestEndTime
-#print EarliestEndTime
-
+# the message (which is in fact the xrootd report) to send to a group
+# of people
 outputmsg = ""
 
-# package of parsing options
-import optparse
 
-# date, in the format of 04-28-1999 
-# 
+'''
+Parse Arguments. 
+
+First parameter is --date (-d) which can specify which day to analyze
+(Brian, since there are only 7 days xrootd log, in fact we can only
+analyze these recent 7 days), The date is in the form of 2010-04-25
+
+Second parameter is --from (-f) to from which to send the report to If
+running under my account yzheng@cse.unl.edu, do I have to use this
+account?
+
+Third parameter --to (-t) is to whom send the report.
+
+Fourth parameter --begin (-b) is the earliest time that job ends at.
+
+Fifth parameter --end (-e) is the latest time that job ends at. 
+'''
+
 def parseArguments():
     parser = optparse.OptionParser()
     parser.add_option("-d", "--date", dest="ReportDate", default=None, help="the date of xrootd report, in the form of 2002-02-28")
@@ -97,24 +104,29 @@ def parseArguments():
 
     return ReportDate, ReportSender, ReportReceiver, JobEarliestEndTime, JobLatestEndTime
 
+'''
+Judge whether a date is valid
+'''
 def GetValidDate(date):
     if date:
-        time_t = time.strptime(date, '%m-%d-%Y')
-        return datetime.datetime(*time_t[:6])
+        time_t = time.strptime(date, '%Y-%m-%d')
+        return datetime(*time_t[:6])
     return None
 
+'''
+Connect to rcf-gratia.unl.edu, and prepare database gratia for querying
+'''
 def ConnectDatabase():
-    '''
-    Connect to rcf-gratia.unl.edu, and prepare database gratia for querying
-    '''
     # read configuration file, get username and password of one user
     config = ConfigParser.ConfigParser()
     config.read("mygratiaDBpwd.ini")
     username = config.get("rcf-gratia", "username")
     password = config.get("rcf-gratia", "password")
     # connect with the database
-    db = MySQLdb.connect("rcf-gratia.unl.edu", username, password, "gratia", 49152)
-
+    try:
+        db = MySQLdb.connect("rcf-gratia.unl.edu", username, password, "gratia", 49152)
+    except Exception:
+        return None, None
     # prepare a cursor oject using cursor() method
     cursor = db.cursor()
     
@@ -122,25 +134,24 @@ def ConnectDatabase():
     return db, cursor
 
 
-def QueryGratia(cursor):
+'''
+Query database gratia, and compute the following:
+for all sites (and sites in the form of %UCSD% %Purdue% %Nebraska% %GLOW% (Grid Laboratory of Wisconsin))
+(1) the number of overflow jobs, the percentage of number of overflow jobs OVER number of all jobs,
+the percentage of walltime of overflow jobs OVER walltime of all jobs, the number of normal jobs
+(2) the percentage of number of overflow jobs with exit code 0 OVER number of overflow jobs, 
+the percentage of number of normal jobs with exit code 0 OVER number of normal jobs,
+the percentage of walltime of overflow jobs with exit code 0 OVER walltime of overflow jobs 
+(3) the percentage of number of overflow jobs with exit code 84 OVER number of overflow jobs, 
+the percentage of number of normal jobs with exit code 84 OVER number of normal jobs,
+the percentage of walltime of overflow jobs with exit code 84 OVER walltime of overflow jobs 
+(4) the efficiency of overflow jobs, which is equal to (CpuUserDuration+CpuSystemDuration)/WallDuration,
+the efficiency of normal jobs
+(5) the percentage of number of overflow jobs whose efficiency is greater than 80%, 
+the percentage of number of normal jobs whose efficiency is greater than 80%
+'''
 
-    '''
-    Query database gratia, and compute the following:
-    for all sites (and sites in the form of %UCSD% %Purdue% %Nebraska% %GLOW% (Grid Laboratory of Wisconsin))
-    (1) the number of overflow jobs, the percentage of number of overflow jobs OVER number of all jobs,
-    the percentage of walltime of overflow jobs OVER walltime of all jobs, the number of normal jobs
-    (2) the percentage of number of overflow jobs with exit code 0 OVER number of overflow jobs, 
-    the percentage of number of normal jobs with exit code 0 OVER number of normal jobs,
-    the percentage of walltime of overflow jobs with exit code 0 OVER walltime of overflow jobs 
-    (3) the percentage of number of overflow jobs with exit code 84 OVER number of overflow jobs, 
-    the percentage of number of normal jobs with exit code 84 OVER number of normal jobs,
-    the percentage of walltime of overflow jobs with exit code 84 OVER walltime of overflow jobs 
-    (4) the efficiency of overflow jobs, which is equal to (CpuUserDuration+CpuSystemDuration)/WallDuration,
-    the efficiency of normal jobs
-    (5) the percentage of number of overflow jobs whose efficiency is greater than 80%, 
-    the percentage of number of normal jobs whose efficiency is greater than 80%
-    '''
-
+def QueryOverflowJobs(cursor):
     # The database keeps its begin/end times in UTC.
     global EarliestEndTime
     global LatestEndTime
@@ -150,7 +161,7 @@ def QueryGratia(cursor):
         COUNT(*), SUM(WallDuration), SUM(CpuUserDuration+CpuSystemDuration)
     from JobUsageRecord JUR
     JOIN Resource RESC on ((JUR.dbid = RESC.dbid) and (RESC.description="ExitCode"))
-    join JobUsageRecord_Meta JURM on JURM.dbid=JUR.dbid
+    JOIN JobUsageRecord_Meta JURM on JURM.dbid=JUR.dbid
     where
       EndTime>=%s and EndTime<%s
       AND HostDescription like '%%-overflow'
@@ -166,14 +177,18 @@ def QueryGratia(cursor):
     else:
         WallDurationOverflowJobs = float(row[1])
         UserAndSystemDurationOverflowJobs = float(row[2])
-
     # Compute efficiency of overflow jobs, which is equal to (CpuUserDuration+CpuSystemDuration)/WallDuration (in all sites)
     if (WallDurationOverflowJobs==0):
         EfficiencyOverflowJobs = 0
     else:
         EfficiencyOverflowJobs = float(100* UserAndSystemDurationOverflowJobs)/WallDurationOverflowJobs;
-    
+
+    return NumOverflowJobs, WallDurationOverflowJobs, UserAndSystemDurationOverflowJobs, EfficiencyOverflowJobs
+
+def QueryNormalJobs(cursor, WallDurationOverflowJobs):
     # compute number (wallduration, CpuUserDuration+CpuSystemDuration) of normal jobs (in all sites)
+    global EarliestEndTime
+    global LatestEndTime
     querystring = """
     SELECT
         COUNT(*), SUM(WallDuration), SUM(CpuUserDuration+CpuSystemDuration)
@@ -189,7 +204,6 @@ def QueryGratia(cursor):
     cursor.execute(querystring, (EarliestEndTime, LatestEndTime));
     row = cursor.fetchone();
     NumNormalJobs = int(row[0])
-    NumAllJobs = NumOverflowJobs + NumNormalJobs
     if (NumNormalJobs == 0):
         WallDurationNormalJobs = 0
         UserAndSystemDurationNormalJobs = 0
@@ -204,21 +218,11 @@ def QueryGratia(cursor):
         EfficiencyNormalJobs = 0
     else:
         EfficiencyNormalJobs = float(100*UserAndSystemDurationNormalJobs)/WallDurationNormalJobs
+    return NumNormalJobs, WallDurationNormalJobs, UserAndSystemDurationNormalJobs, EfficiencyNormalJobs
 
-    # Compute the percentage of number of overflow jobs OVER number of all jobs (in all sites)
-    if (NumAllJobs==0):
-        PercentageOverflowJobs = 0
-    else:
-        PercentageOverflowJobs = float(NumOverflowJobs*100)/NumAllJobs;
-    #print str(PercentageOverflowJobs)+"%"
- 
-    # Compute the percentage of walltime of overflow jobs OVER walltime of all jobs (in all sites)
-    if (WallDurationAllJobs==0):
-        PercentageWallDurationOverflowJobs = 0
-    else:
-        PercentageWallDurationOverflowJobs = float(WallDurationOverflowJobs*100)/WallDurationAllJobs;
-    #print str(PercentageWallDurationOverflowJobs)+"%"
-
+def QueryOverflowJobsExitCode0(cursor, NumOverflowJobs, WallDurationOverflowJobs):
+    global EarliestEndTime
+    global LatestEndTime
     # Compute the percentage of number (wallduration) of overflow jobs with exit code 0 OVER number of overflow jobs (in all sites)
     querystring = """
     SELECT
@@ -251,7 +255,11 @@ def QueryGratia(cursor):
         PercentageWallDurationOverflowJobsExitCode0 = 0
     else:
         PercentageWallDurationOverflowJobsExitCode0 = float(100*WallDurationOverflowJobsExitCode0)/WallDurationOverflowJobs;
-  
+    return NumOverflowJobsExitCode0, WallDurationOverflowJobsExitCode0, PercentageExitCode0Overflow, PercentageWallDurationOverflowJobsExitCode0
+
+def QueryNormalJobsExitCode0(cursor, NumNormalJobs): 
+    global EarliestEndTime
+    global LatestEndTime
     # Compute the percentage of number normal jobs with exit code 0 OVER number of normal jobs (in all sites)
     querystring = """
     SELECT
@@ -274,7 +282,11 @@ def QueryGratia(cursor):
     else:
         PercentageExitCode0Normal = float(100*NumNormalJobsExitCode0)/NumNormalJobs
     #print str(PercentageExitCode0Normal) + "%"
-    
+    return NumNormalJobsExitCode0, PercentageExitCode0Normal
+
+def QueryOverflowJobsExitCode84(cursor, NumOverflowJobs, WallDurationOverflowJobs):
+    global EarliestEndTime
+    global LatestEndTime
     # compute number of overflow jobs with exit code 84 (in all sites)
     querystring = """
     SELECT
@@ -310,7 +322,11 @@ def QueryGratia(cursor):
     # Compute the percentage of walltime of overflow jobs with exit code 84 OVER walltime of overflow jobs (in all sites) 
     PercentageWallDurationOverflowJobsExitCode84 = float(100*WallDurationOverflowJobsExitCode84)/WallDurationOverflowJobs;     
     #print str(PercentageWallDurationOverflowJobsExitCode84)+"%"
+    return NumOverflowJobsExitCode84, WallDurationOverflowJobsExitCode84, PercentageNumOverflowJobsExitCode84, PercentageWallDurationOverflowJobsExitCode84
 
+def QueryNormalJobsExitCode84(cursor, NumNormalJobs):
+    global EarliestEndTime
+    global LatestEndTime
     # compute number of normal jobs with exit code 84 (in all sites)
     querystring = """
     SELECT
@@ -326,6 +342,7 @@ def QueryGratia(cursor):
       AND JURM.ProbeName="condor:glidein-2.t2.ucsd.edu"
      """
     cursor.execute(querystring, (EarliestEndTime, LatestEndTime));
+    row = cursor.fetchone()
     NumNormalJobsExitCode84 = int(row[0])
 
     # Compute the percentage of number of normal jobs with exit code 84 OVER number of normal jobs (in all sites) 
@@ -334,7 +351,11 @@ def QueryGratia(cursor):
     else:
         PercentageNumNormalJobsExitCode84 = float(100*NumNormalJobsExitCode84)/NumNormalJobs
     #print str(PercentageNumNormalJobsExitCode84)+"%"
+    return NumNormalJobsExitCode84, PercentageNumNormalJobsExitCode84
 
+def QueryOverflowJobsEfficiencyGT80(cursor, NumOverflowJobs):
+    global EarliestEndTime
+    global LatestEndTime
     # Compute the percentage of number of overflow jobs whose efficiency greater than 80% (in all sites)
     querystring = """
     SELECT
@@ -357,7 +378,11 @@ def QueryGratia(cursor):
     else:
         PercentageEfficiencyGT80percentOverflowJobs = float(100*NumEfficiencyGT80percentOverflowJobs)/NumOverflowJobs
     #print str(PercentageEfficiencyGT80percentOverflowJobs) + "%"
+    return NumEfficiencyGT80percentOverflowJobs, PercentageEfficiencyGT80percentOverflowJobs
 
+def QueryNormalJobsEfficiencyGT80(cursor, NumNormalJobs):
+    global EarliestEndTime
+    global LatestEndTime
     # Compute the percentage of number of normal jobs whose efficiency greater than 80% (in all sites)
     querystring = """
     SELECT
@@ -380,7 +405,11 @@ def QueryGratia(cursor):
     else:
         PercentageEfficiencyGT80percentNormalJobs = float(100*NumEfficiencyGT80percentNormalJobs)/NumNormalJobs
     #print str(PercentageEfficiencyGT80percentNormalJobs) + "%"
- 
+    return NumEfficiencyGT80percentNormalJobs, PercentageEfficiencyGT80percentNormalJobs
+
+def QueryJobs4sites(cursor):
+    global EarliestEndTime
+    global LatestEndTime
     # Compute the number (walltime) of all jobs in 4 sites
     querystring = """
     SELECT
@@ -403,7 +432,11 @@ def QueryGratia(cursor):
         WallDurationAllJobs4sites = 0
     else:
         WallDurationAllJobs4sites = float(row[1])
+    return NumAllJobs4sites, WallDurationAllJobs4sites
 
+def QueryOverflowJobs4sites(cursor, WallDurationAllJobs4sites):
+    global EarliestEndTime
+    global LatestEndTime
     # Compute the number of overflow jobs that in %UCSD%, %Nebraska%, %GLOW%, and %Purdue%
     querystring = """
     SELECT
@@ -429,25 +462,24 @@ def QueryGratia(cursor):
     else:
         WallDurationOverflowJobs4sites = float(row[1])
         UserAndSystemDurationOverflowJobs4sites = float(row[2])
-
     # Compute the percentage of walltime of overflow jobs OVER walltime of all jobs (in 4 sites)
-
     if (WallDurationAllJobs4sites == 0):
         PercentageWallDurationOverflowJobs4sites = 0
     else:
         PercentageWallDurationOverflowJobs4sites = float(100*WallDurationOverflowJobs4sites)/WallDurationAllJobs4sites
     #print str(PercentageWallDurationOverflowJobs4sites)+"%"
-
     # Compute the efficiency of overflow jobs (in 4 sites)
     if (WallDurationOverflowJobs4sites == 0):
         EfficiencyOverflowJobs4sites = 0
     else:
         EfficiencyOverflowJobs4sites = float(100* UserAndSystemDurationOverflowJobs4sites)/WallDurationOverflowJobs4sites
-
+    return NumOverflowJobs4sites, WallDurationOverflowJobs4sites, UserAndSystemDurationOverflowJobs4sites,PercentageWallDurationOverflowJobs4sites, EfficiencyOverflowJobs4sites
     #print str(NumOverflowJobs4sites)
-    
-    # Compute the number (efficiency) of normal jobs (in 4 sites)
 
+def QueryNormalJobs4sites(cursor):
+    global EarliestEndTime
+    global LatestEndTime
+    # Compute the number (efficiency) of normal jobs (in 4 sites)
     querystring = """
     SELECT
         COUNT(*), SUM(WallDuration), SUM(CpuUserDuration+CpuSystemDuration)
@@ -478,14 +510,11 @@ def QueryGratia(cursor):
     else:
         EfficiencyNormalJobs4sites = float(100*UserAndSystemDurationNormalJobs4sites)/WallDurationNormalJobs4sites
     #print str(EfficiencyNormalJobs4sites) + "%"
-  
-    # Compute the percentage of number of overflow jobs OVER number of all jobs (in 4 sites)
-    if (NumAllJobs4sites == 0):
-        PercentageOverflowJobs4sites = 0
-    else:
-        PercentageOverflowJobs4sites = float(100*NumOverflowJobs4sites)/NumAllJobs4sites;
-    #print str(PercentageOverflowJobs4sites) + "%"
-   
+    return NumNormalJobs4sites, WallDurationNormalJobs4sites, UserAndSystemDurationNormalJobs4sites, EfficiencyNormalJobs4sites
+
+def QueryOverflowJobsExitCode0foursites(cursor, NumOverflowJobs4sites, WallDurationOverflowJobs4sites):
+    global EarliestEndTime
+    global LatestEndTime
     # Compute the number of overflow jobs with exit code 0 (in 4 sites)
     querystring = """
     SELECT
@@ -506,7 +535,6 @@ def QueryGratia(cursor):
     cursor.execute(querystring, (EarliestEndTime, LatestEndTime));
     row = cursor.fetchone()
     NumOverflowJobsExitCode0foursites = int(row[0])
-
     # Compute the percentage of number of overflow jobs with exit code 0 OVER number of overflow jobs (in 4 sites)
     if (NumOverflowJobs4sites == 0):
         PercentageOverflowJobsExitCode0foursites = 0
@@ -517,13 +545,16 @@ def QueryGratia(cursor):
         WallDurationOverflowJobsExitCode0foursites = 0
     else:
         WallDurationOverflowJobsExitCode0foursites = int(row[1])
-
     # Compute the percentage of walltime of overflow jobs with exit code 0 OVERFLOW the walltime of all overflow jobs (in 4 sites)
     if (WallDurationOverflowJobs4sites == 0):
         PercentageWallDurationOverflowJobsExitCode0foursites = 0
     else:
         PercentageWallDurationOverflowJobsExitCode0foursites = float(100*WallDurationOverflowJobsExitCode0foursites)/WallDurationOverflowJobs4sites
+    return NumOverflowJobs4sites, WallDurationOverflowJobsExitCode0foursites, PercentageOverflowJobsExitCode0foursites, PercentageWallDurationOverflowJobsExitCode0foursites
 
+def QueryNormalJobsExitCode0foursites(cursor, NumNormalJobs4sites):
+    global EarliestEndTime
+    global LatestEndTime
     # Compute the number of normal jobs with exit code 0 (in 4 sites)
     querystring = """
     SELECT
@@ -544,14 +575,17 @@ def QueryGratia(cursor):
     cursor.execute(querystring, (EarliestEndTime, LatestEndTime));
     row = cursor.fetchone()
     NumNormalJobsExitCode0foursites = int(row[0])
-
     # Compute the percentage of number of normal jobs with exit code 0 OVER number of normal jobs (in 4 sites)
     if (NumNormalJobs4sites == 0):
         PercentageNormalJobsExitCode0foursites = 0
     else:
         PercentageNormalJobsExitCode0foursites = float(100*NumNormalJobsExitCode0foursites)/NumNormalJobs4sites
     #print str(PercentageNormalJobsExitCode0foursites)+"%"
+    return NumNormalJobsExitCode0foursites, PercentageNormalJobsExitCode0foursites
 
+def QueryOverflowJobsExitCode84foursites(cursor, NumOverflowJobs4sites, WallDurationOverflowJobs4sites):
+    global EarliestEndTime
+    global LatestEndTime
     # Compute number of overflow jobs with exit code 84 (in 4 sites)
     querystring = """
     SELECT
@@ -572,23 +606,24 @@ def QueryGratia(cursor):
     cursor.execute(querystring, (EarliestEndTime, LatestEndTime));
     row = cursor.fetchone()
     NumOverflowJobsExitCode84foursites = int(row[0])
-
     # Compute percentage of number of overflow jobs with exit code 84 OVER number of overflow jobs (in 4 sites)
     PercentageOverflowJobsExitCode84foursites = float(100*NumOverflowJobsExitCode84foursites)/NumOverflowJobs4sites
     #print str(PercentageOverflowJobsExitCode84foursites)+"%"
-
     if (NumOverflowJobsExitCode84foursites == 0):
         WallDurationOverflowJobsExitCode84foursites = 0
     else:
         WallDurationOverflowJobsExitCode84foursites = float(row[1])
-
     # Compute the percentage of walltime of overflow jobs with exit code 84 OVER walltime of overflow jobs (in 4 sites) 
     if (WallDurationOverflowJobs4sites == 0):
         PercentageWallDurationOverflowJobsExitCode84foursites  = 0
     else:
         PercentageWallDurationOverflowJobsExitCode84foursites = float(100*WallDurationOverflowJobsExitCode84foursites)/WallDurationOverflowJobs4sites
     #print str(PercentageWallDurationOverflowJobsExitCode84foursites)+"%"
+    return NumOverflowJobsExitCode84foursites, WallDurationOverflowJobsExitCode84foursites, PercentageOverflowJobsExitCode84foursites, PercentageWallDurationOverflowJobsExitCode84foursites 
 
+def QueryNormalJobsExitCode84foursites(cursor, NumNormalJobs4sites): 
+    global EarliestEndTime
+    global LatestEndTime
     # Compute number of normal jobs with exit code 84 (in 4 sites)
     querystring = """
     SELECT
@@ -609,14 +644,17 @@ def QueryGratia(cursor):
     cursor.execute(querystring, (EarliestEndTime, LatestEndTime));
     row = cursor.fetchone()
     NumNormalJobsExitCode84foursites = int(row[0])
-
     # Compute percentage of number of normal jobs with exit code 84 OVER number of normal jobs (in 4 sites)
     if (NumNormalJobs4sites == 0):
         PercentageNormalJobsExitCode84foursites = 0
     else:
         PercentageNormalJobsExitCode84foursites = float(100*NumNormalJobsExitCode84foursites)/NumNormalJobs4sites
     #print str(PercentageNormalJobsExitCode84foursites)+"%"
+    return NumNormalJobsExitCode84foursites, PercentageNormalJobsExitCode84foursites
 
+def QueryOverflowJobsEfficiencyGT80foursites(cursor, NumOverflowJobs4sites):
+    global EarliestEndTime
+    global LatestEndTime
     # Compute the percentage of number of overflow jobs whose efficiency greater than 80% (in 4 sites)
     querystring = """
     SELECT
@@ -642,7 +680,11 @@ def QueryGratia(cursor):
     else:
         PercentageEfficiencyGT80percentOverflowJobs4sites = float(100*NumEfficiencyGT80percentOverflowJobs4sites)/NumOverflowJobs4sites
     #print str(PercentageEfficiencyGT80percentOverflowJobs4sites) + "%"
+    return NumEfficiencyGT80percentOverflowJobs4sites, PercentageEfficiencyGT80percentOverflowJobs4sites
 
+def QueryNormalJobsGT80percent4sites(cursor, NumNormalJobs4sites):
+    global EarliestEndTime
+    global LatestEndTime
     # Compute the percentage of normal jobs whose efficiency greater than 80% (in 4 sites)
     querystring = """
     SELECT
@@ -668,80 +710,117 @@ def QueryGratia(cursor):
     else:
         PercentageEfficiencyGT80percentNormalJobs4sites = float(100*NumEfficiencyGT80percentNormalJobs4sites)/NumNormalJobs4sites
     #print str(PercentageEfficiencyGT80percentNormalJobs4sites) + "%"
-    
+    return NumEfficiencyGT80percentNormalJobs4sites, PercentageEfficiencyGT80percentNormalJobs4sites    
+
+def QueryGratia(cursor):
+    QueryGratiaJobsAllSites(cursor)
+    QueryGratiaJobs4sites(cursor)
+
+def QueryGratiaJobsAllSites(cursor):
+    # The database keeps its begin/end times in UTC.
+    (NumOverflowJobs, WallDurationOverflowJobs, UserAndSystemDurationOverflowJobs, EfficiencyOverflowJobs) = QueryOverflowJobs(cursor)
+    (NumNormalJobs, WallDurationNormalJobs, UserAndSystemDurationNormalJobs, EfficiencyNormalJobs) = QueryNormalJobs(cursor, WallDurationOverflowJobs)
+    NumAllJobs = NumOverflowJobs + NumNormalJobs
+    WallDurationAllJobs = WallDurationOverflowJobs + WallDurationNormalJobs
+    # Compute the percentage of number of overflow jobs OVER number of all jobs (in all sites)
+    if (NumAllJobs==0):
+        PercentageOverflowJobs = 0
+    else:
+        PercentageOverflowJobs = float(NumOverflowJobs*100)/NumAllJobs;
+    # Compute the percentage of walltime of overflow jobs OVER walltime of all jobs (in all sites)
+    if (WallDurationAllJobs==0):
+        PercentageWallDurationOverflowJobs = 0
+    else:
+        PercentageWallDurationOverflowJobs = float(WallDurationOverflowJobs*100)/WallDurationAllJobs;
+    (NumOverflowJobsExitCode0, WallDurationOverflowJobsExitCode0, PercentageExitCode0Overflow, PercentageWallDurationOverflowJobsExitCode0) = QueryOverflowJobsExitCode0(cursor, NumOverflowJobs, WallDurationOverflowJobs)
+    (NumNormalJobsExitCode0, PercentageExitCode0Normal) = QueryNormalJobsExitCode0(cursor, NumNormalJobs)
+    (NumOverflowJobsExitCode84, WallDurationOverflowJobsExitCode84, PercentageNumOverflowJobsExitCode84, PercentageWallDurationOverflowJobsExitCode84) = QueryOverflowJobsExitCode84(cursor, NumOverflowJobs, WallDurationOverflowJobs)
+    (NumNormalJobsExitCode84, PercentageNumNormalJobsExitCode84) = QueryNormalJobsExitCode84(cursor, NumNormalJobs)
+    (NumEfficiencyGT80percentoverflowJobs, PercentageEfficiencyGT80percentOverflowJobs) = QueryOverflowJobsEfficiencyGT80(cursor, NumOverflowJobs)
+    (NumEfficiencyGT80percentNormalJobs, PercentageEfficiencyGT80percentNormalJobs) = QueryNormalJobsEfficiencyGT80(cursor, NumNormalJobs)
+    PrintStatisticsBasedOnQueryGratiaJobsAllSites(NumOverflowJobs, PercentageOverflowJobs, PercentageWallDurationOverflowJobs, NumNormalJobs, PercentageExitCode0Overflow, PercentageExitCode0Normal, PercentageWallDurationOverflowJobsExitCode0, PercentageNumOverflowJobsExitCode84, PercentageNumNormalJobsExitCode84, PercentageWallDurationOverflowJobsExitCode84, EfficiencyOverflowJobs, EfficiencyNormalJobs, PercentageEfficiencyGT80percentOverflowJobs, PercentageEfficiencyGT80percentNormalJobs)
+
+def QueryGratiaJobs4sites(cursor):
+    (NumAllJobs4sites, WallDurationAllJobs4sites) = QueryJobs4sites(cursor)
+    (NumOverflowJobs4sites, WallDurationOverflowJobs4sites, UserAndSystemDurationOverflowJobs4sites,PercentageWallDurationOverflowJobs4sites, EfficiencyOverflowJobs4sites) = QueryOverflowJobs4sites(cursor, WallDurationAllJobs4sites)
+    (NumNormalJobs4sites, WallDurationNormalJobs4sites, UserAndSystemDurationNormalJobs4sites, EfficiencyNormalJobs4sites) = QueryNormalJobs4sites(cursor)
+    # Compute the percentage of number of overflow jobs OVER number of all jobs (in 4 sites)
+    if (NumAllJobs4sites == 0):
+        PercentageOverflowJobs4sites = 0
+    else:
+        PercentageOverflowJobs4sites = float(100*NumOverflowJobs4sites)/NumAllJobs4sites;
+    (NumOverflowJobs4sites, WallDurationOverflowJobsExitCode0foursites, PercentageOverflowJobsExitCode0foursites, PercentageWallDurationOverflowJobsExitCode0foursites) = QueryOverflowJobsExitCode0foursites(cursor, NumOverflowJobs4sites, WallDurationOverflowJobs4sites)
+    (NumNormalJobExitCode0foursites, PercentageNormalJobsExitCode0foursites) = QueryNormalJobsExitCode0foursites(cursor, NumNormalJobs4sites)
+    (NumOverflowJobsExitCode84foursites, WallDurationOverflowJobsExitCode84foursites, PercentageOverflowJobsExitCode84foursites, PercentageWallDurationOverflowJobsExitCode84foursites) = QueryOverflowJobsExitCode84foursites(cursor, NumOverflowJobs4sites, WallDurationOverflowJobs4sites) 
+    (NumNormalJobsExitCode84foursites, PercentageNormalJobsExitCode84foursites) = QueryNormalJobsExitCode84foursites(cursor, NumNormalJobs4sites)
+    (NumEfficiencyGT80percentOverflowJobs4sites, PercentageEfficiencyGT80percentOverflowJobs4sites) = QueryOverflowJobsEfficiencyGT80foursites(cursor, NumOverflowJobs4sites)
+    (NumEfficiencyGT80percentNormalJobs4sites, PercentageEfficiencyGT80percentNormalJobs4sites) = QueryNormalJobsGT80percent4sites(cursor, NumNormalJobs4sites)
+    PrintStatisticsBasedOnQueryGratiaJobs4sites(NumOverflowJobs4sites, PercentageOverflowJobs4sites, PercentageWallDurationOverflowJobs4sites, NumNormalJobs4sites, PercentageOverflowJobsExitCode0foursites, PercentageNormalJobsExitCode0foursites, PercentageWallDurationOverflowJobsExitCode0foursites, PercentageOverflowJobsExitCode84foursites, PercentageWallDurationOverflowJobsExitCode84foursites, PercentageNormalJobsExitCode84foursites, EfficiencyOverflowJobs4sites, EfficiencyNormalJobs4sites, PercentageEfficiencyGT80percentOverflowJobs4sites, PercentageEfficiencyGT80percentNormalJobs4sites)
+
+def PrintStatisticsBasedOnQueryGratiaJobsAllSites(NumOverflowJobs, PercentageOverflowJobs, PercentageWallDurationOverflowJobs, NumNormalJobs, PercentageExitCode0Overflow, PercentageExitCode0Normal, PercentageWallDurationOverflowJobsExitCode0, PercentageNumOverflowJobsExitCode84, PercentageNumNormalJobsExitCode84, PercentageWallDurationOverflowJobsExitCode84, EfficiencyOverflowJobs, EfficiencyNormalJobs, PercentageEfficiencyGT80percentOverflowJobs, PercentageEfficiencyGT80percentNormalJobs):    
+    global outputmsg
     # Print out the statistics 
-   
     msg= "\nAll sites\n"
     print msg
     global outputmsg
     outputmsg = msg
-
     msg =  "Overflow: %d: (%.2f%s wall %.2f%s) Normal:%d" % (NumOverflowJobs, PercentageOverflowJobs, "%", PercentageWallDurationOverflowJobs, "%", NumNormalJobs)
     print msg
     msg += "\n"
     outputmsg += msg
-
     msg =  "Exit 0: %.2f%s (vs %.2f%s) wall %.2f%s" % (PercentageExitCode0Overflow, "%", PercentageExitCode0Normal, "%", PercentageWallDurationOverflowJobsExitCode0, "%")
     print msg
     msg += "\n"
     outputmsg += msg
-
     msg =  "Exit 84: %.2f%s (vs %.2f%s) wall %.2f%s" % (PercentageNumOverflowJobsExitCode84, "%", PercentageNumNormalJobsExitCode84,"%", PercentageWallDurationOverflowJobsExitCode84, "%")
     print msg
     msg += "\n"
     outputmsg += msg
-
     msg =  "Efficiency: %.2f%s (vs %.2f%s)" % (EfficiencyOverflowJobs, "%", EfficiencyNormalJobs, "%")
     print msg
     msg += "\n"
     outputmsg += msg
-
     msg =  "Eff  >80%s: %.2f%s (vs %.2f%s)" % ("%", PercentageEfficiencyGT80percentOverflowJobs, "%", PercentageEfficiencyGT80percentNormalJobs, "%")
     print msg
     msg += "\n"
     outputmsg += msg
-
     msg = "\nOnly UCSD+Nebraska+Wisconsin+Purdue\n"
     print msg
     msg += "\n"
     outputmsg += msg
 
+def PrintStatisticsBasedOnQueryGratiaJobs4sites(NumOverflowJobs4sites, PercentageOverflowJobs4sites, PercentageWallDurationOverflowJobs4sites, NumNormalJobs4sites, PercentageOverflowJobsExitCode0foursites, PercentageNormalJobsExitCode0foursites, PercentageWallDurationOverflowJobsExitCode0foursites, PercentageOverflowJobsExitCode84foursites, PercentageWallDurationOverflowJobsExitCode84foursites, PercentageNormalJobsExitCode84foursites, EfficiencyOverflowJobs4sites, EfficiencyNormalJobs4sites, PercentageEfficiencyGT80percentOverflowJobs4sites, PercentageEfficiencyGT80percentNormalJobs4sites):
+    global outputmsg
     msg = "Overflow: %d: (%.2f%s wall %.2f%s) Normal:%d" % (NumOverflowJobs4sites, PercentageOverflowJobs4sites, "%", PercentageWallDurationOverflowJobs4sites, "%", NumNormalJobs4sites)
     print msg
     msg += "\n"
     outputmsg += msg
-
     msg = "Exit 0: %.2f%s (vs %.2f%s) wall %.2f%s" % (PercentageOverflowJobsExitCode0foursites, "%", PercentageNormalJobsExitCode0foursites, "%", PercentageWallDurationOverflowJobsExitCode0foursites, "%") 
     print msg
     msg += "\n"
     outputmsg += msg
-
     msg = "Exit 84: %.2f%s (vs %.2f%s) wall %.2f%s" % (PercentageOverflowJobsExitCode84foursites, "%", PercentageNormalJobsExitCode84foursites, "%", PercentageWallDurationOverflowJobsExitCode84foursites, "%")
     print msg
     msg += "\n"
     outputmsg += msg
-
     msg =  "Efficiency: %.2f%s (vs %.2f%s)" % (EfficiencyOverflowJobs4sites, "%", EfficiencyNormalJobs4sites, "%")
     print msg
     msg+= "\n"
     outputmsg += msg
-
     msg =  "Eff  >80%s: %.2f%s (vs %.2f%s)" % ("%", PercentageEfficiencyGT80percentOverflowJobs4sites, "%", PercentageEfficiencyGT80percentNormalJobs4sites, "%")
     print msg
     msg += "\n"
     outputmsg += msg
 
-def FilterCondorJobs(cursor):
-
-    '''
-    For each overflow job with exit code 84, we check possible correponding job in xrootd log
-    and output the job in the following format
-    for cmssrv32.fnal.gov:1094:
-        for /CN=Nicholas S Eggert 114717:
-          408235.127, 2012-04-05 20:03:15 GMT--2012-04-05 20:13:20 GMT,
-           /store/mc/Fall11/WJetsToLNu_TuneZ2_7TeV-madgraph-tauola/AODSIM/PU_S6_START42_V14B-v1/0000/1EEE763D-1AF2-E011-8355-00304867D446.root
-    '''
-
+'''
+For each overflow job with exit code 84, we check possible correponding job in xrootd log
+and output the job in the following format
+for cmssrv32.fnal.gov:1094:
+    for /CN=Nicholas S Eggert 114717:
+      408235.127, 2012-04-05 20:03:15 GMT--2012-04-05 20:13:20 GMT,
+       /store/mc/Fall11/WJetsToLNu_TuneZ2_7TeV-madgraph-tauola/AODSIM/PU_S6_START42_V14B-v1/0000/1EEE763D-1AF2-E011-8355-00304867D446.root
+'''
+def FilterCondorJobsExitCode84(cursor):
     # Find those overflow jobs whose exit code is 84 and resource type is BatchPilot 
     querystring = """
     SELECT JUR.dbid, LocalJobId, CommonName, Host, StartTime, EndTime
@@ -762,7 +841,6 @@ def FilterCondorJobs(cursor):
     msg = msg+"\n"
     global outputmsg
     outputmsg += msg
-
     for i in range(numrows):
         row = cursor.fetchone()
         #print row[0], row[1], row[2], row[3], row[4], row[5]
@@ -776,41 +854,37 @@ def FilterCondorJobs(cursor):
 	#print host
 	if (host!="NULL"):
             # Check each job in xrootd log
-            matchedflag = CheckJobMatchInXrootdLog(localjobid, commonname, host, starttime, endtime, gmstarttime, gmendtime)
+            matchedflag = CheckJobMatchInXrootdLog_ExactMatch(localjobid, commonname, host, starttime, endtime, gmstarttime, gmendtime)
             if (not matchedflag):
                 #print 'yes, not match\n'
-                CheckJobMatchInXrootdLog_SolelyBasedOn_LoginDiscTime(localjobid, commonname, host, starttime, endtime, gmstarttime, gmendtime)
+                CheckJobMatchInXrootdLog_FuzzyMatch(localjobid, commonname, host, starttime, endtime, gmstarttime, gmendtime)
 
-def CheckJobMatchInXrootdLog(localjobid, commonname, host, starttime, endtime, gmstarttime, gmendtime):
-    '''
-    
-    for the parameters,
-    localjobid, commonname, host, starttime, endtime, gmstarttime, gmendtime
-    are all a job's information read from rcf-gratia database.
-    
-    Below is the format of analysis of possible overflow xrootd jobs with exitcode 84 in the following format
-    for cmssrv32.fnal.gov (a redirection site)
-       for user .../.../CN=Brian (a x509UserProxyVOName)
-         jobid matched-to-jobids-gratia 
-         locajobid starttime endtime jobfilename 
+'''
+for the parameters,
+localjobid, commonname, host, starttime, endtime, gmstarttime, gmendtime
+are all a job's information read from rcf-gratia database.
 
-    Brian and I guess the overflow jobs as follows. First, we search
-    the gratia database the overflow jobs with exit code 84. Then, for
-    each such job J, we refer the xrootd.unl.edu log file, and find
-    corresponding xrootd.unl.edu records by guessing: if xrootd log
-    show that there is a job whose host machine matches this job's
-    host machine, and whose login time is within 10 minutes of job J's
-    start time and whose disconnection time is within 10 minutes of
-    job J's disconnection time, then this job is a possible xrootd
-    overflow job.
+Below is the format of analysis of possible overflow xrootd jobs with exitcode 84 in the following format
+for cmssrv32.fnal.gov (a redirection site)
+   for user .../.../CN=Brian (a x509UserProxyVOName)
+     jobid matched-to-jobids-gratia 
+     locajobid starttime endtime jobfilename 
 
-    We check our corresponding xrootd log, and see whether we can
-    track the activity of this job.  We check 2 dictionaries:
-    jobLoginDisconnectionAndSoOnDictionary and hostnameJobsDictionary,
-    and see whether there exist jobs that satisfying the the
-    requirement
-    '''
-    
+Brian and I guess the overflow jobs as follows. First, we search the
+gratia database the overflow jobs with exit code 84. Then, for each
+such job J, we refer the xrootd.unl.edu log file, and find
+corresponding xrootd.unl.edu records by guessing: if xrootd log show
+that there is a job whose host machine matches this job's host
+machine, and whose login time is within 10 minutes of job J's start
+time and whose disconnection time is within 10 minutes of job J's
+disconnection time, then this job is a possible xrootd overflow job.
+
+We check our corresponding xrootd log, and see whether we can track
+the activity of this job.  We check 2 dictionaries:
+jobLoginDisconnectionAndSoOnDictionary and hostnameJobsDictionary, and
+see whether there exist jobs that satisfying the the requirement
+'''
+def CheckJobMatchInXrootdLog_ExactMatch(localjobid, commonname, host, starttime, endtime, gmstarttime, gmendtime):
     # host from rcf-gratia
     hostnameitems = host.split(" ")
     # hostname from rcf-gratia
@@ -913,35 +987,37 @@ def ARE_MATCHED_HOSTNAMES(xrootdhostname, gratiahostname):
     #print matchedflag
     return matchedflag
 
-# we think it is a valid host name if it includes meaning
-# domain name which includes .edu, .gov, .org, .com
+# It is a valid host name if it includes meaning domain name which
+# includes .edu, .gov, .org, .com
 def Is_a_valid_hostname(hostname1):
     if hostname1.find(".edu")>=0 or hostname1.find(".gov")>=0 or hostname1.find(".org") or hostname1.find(".com"):
         return 1
     return None
 
-def CheckJobMatchInXrootdLog_SolelyBasedOn_LoginDiscTime(localjobid, commonname, host, starttime, endtime, gmstarttime, gmendtime):
-    '''
-    Below is the format of analysis of possible overflow xrootd jobs with exitcode 84 in the following format
-    for cmssrv32.fnal.gov (a redirection site)
-       for user .../.../CN=Brian (a x509UserProxyVOName)
-          locajobid starttime endtime jobfilename 
+'''
+Below is the format of analysis of possible overflow xrootd jobs with exitcode 84 in the following format
+for cmssrv32.fnal.gov (a redirection site)
+   for user .../.../CN=Brian (a x509UserProxyVOName)
+      locajobid starttime endtime jobfilename 
 
-    Brian and I guess the overflow jobs as follows. First, we search
-    the gratia database the overflow jobs with exit code 84. Then, for
-    each such job J, we refer the xrootd.unl.edu log file, and find
-    corresponding xrootd.unl.edu records by guessing: if xrootd log
-    show that there is a job whose login time is within 10 minutes of
-    job J's start time and whose disconnection time is within 10
-    minutes of job J's disconnection time, then this job is a possible
-    xrootd overflow job.
+Brian and I guess the overflow jobs as follows. First, we search the
+gratia database the overflow jobs with exit code 84. Then, for each
+such job J, we refer the xrootd.unl.edu log file, and find
+corresponding xrootd.unl.edu records by guessing: if xrootd log show
+that there is a job whose valid domain name (.org, .com, .edu, .gov)
+matches J's valid domain name (when one of the domain name is not
+valid, we assume they are a possible match; purdue university's xrootd
+host name has to include @nat) and whose login time is within 10
+minutes of job J's start time and whose disconnection time is within
+10 minutes of job J's disconnection time, then this job is a possible
+xrootd overflow job.
 
-    We check our corresponding xrootd log, and see whether we can
-    track the activity of this job.  We check 1 dictionary:
-    jobLoginDisconnectionAndSoOnDictionary to see whether there exist
-    jobs that satisfying the the requirement
-    '''
-
+We check our corresponding xrootd log, and see whether we can track
+the activity of this job.  We check 1 dictionary:
+jobLoginDisconnectionAndSoOnDictionary to see whether there exist jobs
+that satisfying the the requirement
+'''
+def CheckJobMatchInXrootdLog_FuzzyMatch(localjobid, commonname, host, starttime, endtime, gmstarttime, gmendtime):
     # host from rcf-gratia
     hostnameitems = host.split(" ")
     # hostname from rcf-gratia
@@ -1011,6 +1087,9 @@ def CheckJobMatchInXrootdLog_SolelyBasedOn_LoginDiscTime(localjobid, commonname,
                     flag = 1
     return flag
 
+'''
+Covert a set to a printable string
+'''
 def ConvertSetToString(aset):
     resultstr = ""
     for oneitem in aset:
@@ -1044,17 +1123,17 @@ def Is_Jobid_in_HostnameRemoveList(jobid):
             break
     return inremovelist
 
+'''
+build a dictonary in such a format by scanning the xrootd logs
+key     value
+jobid   [matched-to-jobids-on-gratia, login time, disconnection time, filename, redirection site]
+
+Note that matched-to-jobids-on-gratia are a set of hostnames that it matches to.
+Sometimes a matched-to-jobid-on-gratia and jobid are not exactly same, however, it could be possible they
+are in fact the same hostname. 
+We list both of them so that the report reader can judge. 
+'''
 def buildJobLoginDisconnectionAndSoOnDictionary(filename):
-    '''
-    build a dictonary in such a format by scanning the xrootd logs
-    key     value
-    jobid   [matched-to-jobids-on-gratia, login time, disconnection time, filename, redirection site]
-    
-    Note that matched-to-jobids-on-gratia are a set of hostnames that it matches to.
-    Sometimes a matched-to-jobid-on-gratia and jobid are not exactly same, however, it could be possible they
-    are in fact the same hostname. 
-    We list both of them so that the report reader can judge. 
-    '''
     infile = open(filename)
     # we scan this line
     while 1:
@@ -1135,49 +1214,17 @@ def Is_Filename_In_RemoveList(filename):
             break;
     return inremovelist
 
-import smtplib
-from email.MIMEText import MIMEText
 
-def main():    
-    (ReportDate, ReportSender, ReportReceiver, JobEarliestEndTime, JobLatestEndTime)= parseArguments()
-    
-    ReportDateString = today.strftime("%Y-%m-%d")
-    if ReportDate!=None:
-        # in the form of struct_time.
-        # NOTE - UCSD runs this on a 24-hour period, starting at 6am local.
-        # We must convert to a Unix epoch including DST, add the UCSD offset,
-        # then to a UTC datetime.
-        ReportDateString = ReportDate
-        ReportDay = time.strptime(ReportDate, "%m-%d-%Y")
-        UCSD_start = datetime(ReportDay.year, ReportDay.month, ReportDay.day, 6, 0, 0)
-        UCSD_start_epoch = int(time.mktime(UCSD_start.timetuple())) + UCSDoffset/3600
-        LatestEndTime = datetime.utcfromtimestamp(UCSD_start_epoch)
-        EarliestEndTime = LatestEndTime - timedelta(1, 0)
-    if JobEarliestEndTime!= None:
-        EarliestEndTime = JobEarliestEndTime
-    if JobLatestEndTime != None:
-        LatestEndTime =  JobLatestEndTime
-    # connect the database server rcf-gratia.unl.edu
-    db, cursor = ConnectDatabase()
-    # query database gratia, and output statistic results
-    QueryGratia(cursor)
-    # Get all the filenames in the form of xrootd.log
-    # then for each file, build the hash table
-    filenames = os.listdir("/var/log/xrootd")
-    for filename in filenames:
-        if (filename.find("xrootd.log")>=0):
-            buildJobLoginDisconnectionAndSoOnDictionary("/var/log/xrootd/"+filename)
-    # check with xrootd log, and output possible overflow jobs with exit code 84
-    FilterCondorJobs(cursor)
-    # disconnect the database
-    db.close()
-    # output result in the following format
-    # for cmssrv32.fnal.gov (a redirection site)
-    #   for user /....../CN=Brian (a x509UserProxyVOName)
-
-    #       1234.0, 8:00-12:00, /store/foo
+'''
+output result in the following format
+for cmssrv32.fnal.gov (a redirection site)
+   for user /....../CN=Brian (a x509UserProxyVOName)
+       xrootd host name, gratia host name
+       1234.0, 8:00-12:00, /store/foo
+'''
+def PrintPossibleOverflowJobs():
     global outputmsg
-
+    global redirectionsite_vs_users_dictionary
     # which are localjobid, job start time GMT, job end date GMT, redirection file name
     for key,value in redirectionsite_vs_users_dictionary.iteritems():
         msg =  "for "+ key+":"
@@ -1185,7 +1232,7 @@ def main():
         msg = msg + "\n"
         outputmsg += msg
         for oneuser in set(value):
-            msg = "    for "+ oneuser+":"
+            msg = "\n    for "+ oneuser+":"
             print msg
             msg +="\n"
             outputmsg += msg
@@ -1195,9 +1242,13 @@ def main():
                 print msg
                 msg += "\n"
                 outputmsg += msg
-    
+
+def SendEmail(ReportDateString, ReportSender, ReportReceiver):
+    global outputmsg
     msg = MIMEText(outputmsg)
-    msg['Subject'] = "xrootd report of " + ReportDateString 
+    # Only get the 2012-04-28 of the ReportDateString
+    ReportDate = ReportDateString[:10]
+    msg['Subject'] = "xrootd report of " + ReportDate 
     msg['From'] = "yzheng@cse.unl.edu"
     if ReportSender!=None:
         msg['From'] = ReportSender
@@ -1206,8 +1257,41 @@ def main():
         msg['To'] = ReportReceiver
     s = smtplib.SMTP('localhost')
     s.sendmail(msg['From'], msg['To'], msg.as_string())
-    
 
+def main():    
+    global EarliestEndTime
+    global LatestEndTime
+    (ReportDate, ReportSender, ReportReceiver, JobEarliestEndTime, JobLatestEndTime)= parseArguments()
+    ReportDateString = today.strftime("%Y-%m-%d")
+    if ReportDate!=None:
+        #print str(ReportDate)
+        ReportDateString = str(ReportDate)
+        ReportDay = time.strptime(str(ReportDate), "%Y-%m-%d 00:00:00")
+        UCSD_start = datetime(ReportDay.tm_year, ReportDay.tm_mon, ReportDay.tm_mday, 6, 0, 0)
+        UCSD_start_epoch = int(time.mktime(UCSD_start.timetuple())) + UCSDoffset/3600
+        LatestEndTime = datetime.utcfromtimestamp(UCSD_start_epoch)
+        EarliestEndTime = LatestEndTime - timedelta(1, 0)
+    if JobEarliestEndTime!= None:
+        EarliestEndTime = JobEarliestEndTime
+    if JobLatestEndTime != None:
+        LatestEndTime =  JobLatestEndTime
+    # connect the database server rcf-gratia.unl.edu
+    db, cursor = ConnectDatabase()
+    if db:
+        # query database gratia, and output statistic results
+        QueryGratia(cursor)
+        # Get all the filenames in the form of xrootd.log, then for each file, build the hash table
+        filenames = os.listdir("/var/log/xrootd")
+        for filename in filenames:
+            if (filename.find("xrootd.log")>=0):
+                buildJobLoginDisconnectionAndSoOnDictionary("/var/log/xrootd/"+filename)
+        # check with xrootd log, and output possible overflow jobs with exit code 84
+        FilterCondorJobsExitCode84(cursor)
+        # disconnect the database
+        db.close()
+        PrintPossibleOverflowJobs()
+        SendEmail(ReportDateString, ReportSender, ReportReceiver)
+    
 # execute main function
 if __name__ == "__main__":
     main()
