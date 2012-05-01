@@ -46,6 +46,7 @@ import optparse
 # package of sending emails
 import smtplib
 from email.MIMEText import MIMEText
+from email.MIMEMultipart import MIMEMultipart
 
 os.environ['TZ'] = "US/Pacific"
 time.tzset()
@@ -90,8 +91,8 @@ Fifth parameter --end (-e) is the latest time that job ends at.
 def parseArguments():
     parser = optparse.OptionParser()
     parser.add_option("-d", "--date", dest="ReportDate", default=None, help="the date of xrootd report, in the form of 2002-02-28")
-    parser.add_option("-f", "--from", dest="ReportSender", default="yzheng@cse.unl.edu", help="the sender of the xrootd report (format is email address, by default it is yzheng@cse.unl.edu)")
-    parser.add_option("-t", "--to", dest="ReportReceiver", default="yaling.zheng@gmail.com", help="the receiver of the xrootd report (format is email address, by default it is yaling.zheng@gmail.com)")
+    parser.add_option("-f", "--from", dest="ReportSender", default=None, help="the sender of the xrootd report (format is email address, by default it is yzheng@cse.unl.edu)")
+    parser.add_option("-t", "--to", dest="ReportReceiver", default=None, help="the receiver of the xrootd report (format is email address, by default it is yaling.zheng@gmail.com)")
     parser.add_option("-b", "--begin", dest="JobEarliestEndTime", default=None, help="the earliest UTC end time of the jobs (format 2008-12-03 23:34:45)")
     parser.add_option("-e", "--end", dest="JobLatestEndTime", default=None, help="the latest UTC end time of the jobs (format 2008-12-04 22:04:25)")
     
@@ -1243,20 +1244,38 @@ def PrintPossibleOverflowJobs():
                 msg += "\n"
                 outputmsg += msg
 
+# def SendEmail(ReportDateString, ReportSender, ReportReceiver):
+#     global outputmsg
+#     msg = MIMEText(outputmsg)
+#     # Only get the 2012-04-28 of the ReportDateString
+#     ReportDate = ReportDateString[:10]
+#     msg['Subject'] = "xrootd report of " + ReportDate 
+#     msg['From'] = "yzheng@cse.unl.edu"
+#     if ReportSender!=None:
+#         msg['From'] = ReportSender
+#     msg['To'] = "yaling.zheng@gmail.com"
+#     if ReportReceiver!=None:
+#         msg['To'] = ReportReceiver
+#     s = smtplib.SMTP('localhost')
+#     s.sendmail(msg['From'], msg['To'], msg.as_string())
+
 def SendEmail(ReportDateString, ReportSender, ReportReceiver):
     global outputmsg
-    msg = MIMEText(outputmsg)
+    msg = MIMEMultipart()
     # Only get the 2012-04-28 of the ReportDateString
     ReportDate = ReportDateString[:10]
-    msg['Subject'] = "xrootd report of " + ReportDate 
-    msg['From'] = "yzheng@cse.unl.edu"
+    msg["Subject"] = "xrootd report of " + ReportDate 
+    msg["From"] = "yzheng@cse.unl.edu"
     if ReportSender!=None:
-        msg['From'] = ReportSender
-    msg['To'] = "yaling.zheng@gmail.com"
+        msg["From"] = ReportSender
+    msg["To"] = "yaling.zheng@gmail.com,bbockelm@cse.unl.edu"
+    body = MIMEText(outputmsg)
+    msg.attach(body)
     if ReportReceiver!=None:
-        msg['To'] = ReportReceiver
-    s = smtplib.SMTP('localhost')
-    s.sendmail(msg['From'], msg['To'], msg.as_string())
+        msg["To"] = ReportReceiver
+    s = smtplib.SMTP("localhost")
+    s.sendmail(msg["From"], msg["To"].split(","), msg.as_string())
+    s.quit()
 
 def main():    
     global EarliestEndTime
