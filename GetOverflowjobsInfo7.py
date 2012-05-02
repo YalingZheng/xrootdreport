@@ -1017,6 +1017,9 @@ We check our corresponding xrootd log, and see whether we can track
 the activity of this job.  We check 1 dictionary:
 jobLoginDisconnectionAndSoOnDictionary to see whether there exist jobs
 that satisfying the the requirement
+
+When there are multiple FUZZY MATCHES, we choose not to print it out
+
 '''
 def CheckJobMatchInXrootdLog_FuzzyMatch(localjobid, commonname, host, starttime, endtime, gmstarttime, gmendtime):
     # host from rcf-gratia
@@ -1031,6 +1034,8 @@ def CheckJobMatchInXrootdLog_FuzzyMatch(localjobid, commonname, host, starttime,
     jobEndAt = int(time.mktime(endtime.utctimetuple())) - Nebraskaoffset * 3600
     flag = None
     time_now = time.time()
+    NUMBER_OF_FUZZY_MATCHES = 0
+    foundjob = None
     for key,value in jobLoginDisconnectionAndSoOnDictionary.iteritems():
         job = key
         # judge hostname (GRATIA hostname) and job (xrootd hostname) match or not
@@ -1056,37 +1061,107 @@ def CheckJobMatchInXrootdLog_FuzzyMatch(localjobid, commonname, host, starttime,
                     # therefore, the first item in the jobLoginDisconnectionAndSoOnDictionary 
                     # records this information (correspond to the jobid in rcf-gratia)
                     #print "yes, found one"
-                    if (not LoginDisconnectionTimeAndSoOn[0]):
-                        LoginDisconnectionTimeAndSoOn[0]=Set([hostname])
-                    else:
-                        LoginDisconnectionTimeAndSoOn[0].add(hostname)
-                    jobLoginDisconnectionAndSoOnDictionary[job]=LoginDisconnectionTimeAndSoOn
-                    retrieved_filename = LoginDisconnectionTimeAndSoOn[3]
-                    if (not retrieved_filename):
-                        retrieved_filename = "None"
-                    retrieved_redirectionsite = LoginDisconnectionTimeAndSoOn[4]
-                    if (not retrieved_redirectionsite):
-                        retrieved_redirectionsite = "None"
-                    if redirectionsite_vs_users_dictionary.get(retrieved_redirectionsite, None):
-                        redirectionsite_vs_users_dictionary[retrieved_redirectionsite].add(commonname)
-                    else:
-                        redirectionsite_vs_users_dictionary[retrieved_redirectionsite]=Set([commonname])
-                    # we need also update another
-                    key_of_redirectionsiteuser = retrieved_redirectionsite + "."+ commonname
-                    str_gmstarttime = gmstarttime.strftime("%Y-%m-%d %H:%M:%S GMT")
-                    str_gmendtime = gmendtime.strftime("%Y-%m-%d %H:%M:%S GMT")
-                    if (not redirectionsiteuser_vs_jobs_dictionary.get(key_of_redirectionsiteuser, None)):
-                        redirectionsiteuser_vs_jobs_dictionary[key_of_redirectionsiteuser] = Set([job+"(XROOTD hostname), "+ ConvertSetToString(LoginDisconnectionTimeAndSoOn[0])+"(GRATIA hostname), \n        "+ localjobid+", "+str_gmstarttime + "--" + str_gmendtime + ", \n          " + retrieved_filename])
-                    else:
-                        redirectionsiteuser_vs_jobs_dictionary[key_of_redirectionsiteuser].add(job+"(XROOTD hostname), "+ ConvertSetToString(LoginDisconnectionTimeAndSoOn[0])+"(GRATIA hostname), \n        " + localjobid+", "+str_gmstarttime + "--" + str_gmendtime + ", \n          "+retrieved_filename)
-                        #for key, value in redirectionsite_vs_users_dictionary.iteritems():
-                        #	print key
-                        #    print value
-                        #for key, value in redirectionsiteuser_vs_jobs_dictionary.iteritems():
-                        #	print key
-                        #	print value			                        
-                    flag = 1
-    return flag
+                    NUMBER_OF_FUZZY_MATCHES += 1
+                    if (NUMBER_OF_FUZZY_MATCHES == 1):
+                        foundjob = job
+    if (NUMBER_OF_FUZZY_MATCHES == 1):
+        founduniquejobLoginDisconnectionTimeAndSoOn = jobLoginDisconnectionAndSoOnDictionary[foundjob]
+        foundjob_filename = founduniquejobLoginDisconnectionTimeAndSoOn[3]
+        foundjob_redirectionsite = founduniquejobLoginDisconnectionTimeAndSoOn[4]
+        if (not foundjob_filename):
+            foundjob_filename = "None"
+        if (not foundjob_redirectionsite):
+            foundjob_redirectionsite = "None"
+        # build the redirectionsite_vs_users_dictionary for output
+        if redirectionsite_vs_users_dictionary.get(foundjob_redirectionsite, None):
+            redirectionsite_vs_users_dictionary[foundjob_redirectionsite].add(commonname)
+        else:
+            redirectionsite_vs_users_dictionary[foundjob_redirectionsite]=Set([commonname])
+        # we need also update another
+        key_of_redirectionsiteuser = foundjob_redirectionsite + "."+ commonname
+        str_gmstarttime = gmstarttime.strftime("%Y-%m-%d %H:%M:%S GMT")
+        str_gmendtime = gmendtime.strftime("%Y-%m-%d %H:%M:%S GMT")
+        foundjob_gratiahostname = founduniquejobLoginDisconnectionTimeAndSoOn[0]
+        if (not redirectionsiteuser_vs_jobs_dictionary.get(key_of_redirectionsiteuser, None)):
+            redirectionsiteuser_vs_jobs_dictionary[key_of_redirectionsiteuser] = Set([foundjob+"(XROOTD hostname), "+ ConvertSetToString(foundjob_gratiahostname)+"(GRATIA hostname), \n        "+ localjobid+", "+str_gmstarttime + "--" + str_gmendtime + ", \n          " + retrieved_filename])
+        else:
+            redirectionsiteuser_vs_jobs_dictionary[key_of_redirectionsiteuser].add(foundjob+"(XROOTD hostname), "+ ConvertSetToString(foundjob_gratiahostname)+"(GRATIA hostname), \n        " + localjobid+", "+str_gmstarttime + "--" + str_gmendtime + ", \n          "+retrieved_filename)
+    return NUMBER_OF_FUZZY_MATCHES
+
+# def CheckJobMatchInXrootdLog_FuzzyMatch(localjobid, commonname, host, starttime, endtime, gmstarttime, gmendtime):
+#     # host from rcf-gratia
+#     hostnameitems = host.split(" ")
+#     # hostname from rcf-gratia
+#     hostname = hostnameitems[0]
+     
+#     # mktime assumes local time, but starttime is in UTC.
+#     # Use "utctimetuple" to force it to a timestamp *forcing no DST*, and
+#     # subtract off the timezone.  This procedure is DST-safe.
+#     jobBeginAt = int(time.mktime(starttime.utctimetuple())) - Nebraskaoffset * 3600
+#     jobEndAt = int(time.mktime(endtime.utctimetuple())) - Nebraskaoffset * 3600
+#     flag = None
+#     time_now = time.time()
+#     for key,value in jobLoginDisconnectionAndSoOnDictionary.iteritems():
+#         job = key
+#         # judge hostname (GRATIA hostname) and job (xrootd hostname) match or not
+#         if ARE_MATCHED_HOSTNAMES(job, hostname):
+#             #print job
+#             #print "matched!!!!!!"
+#             LoginDisconnectionTimeAndSoOn = jobLoginDisconnectionAndSoOnDictionary[job]
+#             retrieved_loginTime = LoginDisconnectionTimeAndSoOn[1]
+#             retrieved_disconnectionTime = LoginDisconnectionTimeAndSoOn[2]
+#             if (not retrieved_loginTime):
+#                 loginTime = 0
+#             else:
+#                 loginTime = int(retrieved_loginTime)
+#             if (not retrieved_disconnectionTime):
+#                 disconnectionTime = time_now + 100
+#             else:
+#                 disconnectionTime = int(retrieved_disconnectionTime)
+#             if ((loginTime >= jobBeginAt+0) and (loginTime <= jobBeginAt + 600)):
+#                 if ((jobEndAt >= disconnectionTime+0) and (jobEndAt <= disconnectionTime + 600)):
+#                     #print localjobid, commonname, host, starttime, endtime
+#                     # we did not find a hostname in xrootd correspond the one in rcf-gratia,
+#                     # so we try to guess maybe the hostname in xrootd and rcf-gratia are different.
+#                     # therefore, the first item in the jobLoginDisconnectionAndSoOnDictionary 
+#                     # records this information (correspond to the jobid in rcf-gratia)
+#                     #print "yes, found one"
+#                     if (not LoginDisconnectionTimeAndSoOn[0]):
+#                         LoginDisconnectionTimeAndSoOn[0]=Set([hostname])
+#                     else:
+#                         LoginDisconnectionTimeAndSoOn[0].add(hostname)
+#                     jobLoginDisconnectionAndSoOnDictionary[job]=LoginDisconnectionTimeAndSoOn
+#                     retrieved_filename = LoginDisconnectionTimeAndSoOn[3]
+#                     if (not retrieved_filename):
+#                         retrieved_filename = "None"
+#                     retrieved_redirectionsite = LoginDisconnectionTimeAndSoOn[4]
+#                     if (not retrieved_redirectionsite):
+#                         retrieved_redirectionsite = "None"
+
+#                     # build the redirectionsite_vs_users_dictionary for output
+#                     if redirectionsite_vs_users_dictionary.get(retrieved_redirectionsite, None):
+#                         redirectionsite_vs_users_dictionary[retrieved_redirectionsite].add(commonname)
+#                     else:
+#                         redirectionsite_vs_users_dictionary[retrieved_redirectionsite]=Set([commonname])
+#                     # we need also update another
+#                     key_of_redirectionsiteuser = retrieved_redirectionsite + "."+ commonname
+#                     str_gmstarttime = gmstarttime.strftime("%Y-%m-%d %H:%M:%S GMT")
+#                     str_gmendtime = gmendtime.strftime("%Y-%m-%d %H:%M:%S GMT")
+#                     if (not redirectionsiteuser_vs_jobs_dictionary.get(key_of_redirectionsiteuser, None)):
+#                         redirectionsiteuser_vs_jobs_dictionary[key_of_redirectionsiteuser] = Set([job+"(XROOTD hostname), "+ ConvertSetToString(LoginDisconnectionTimeAndSoOn[0])+"(GRATIA hostname), \n        "+ localjobid+", "+str_gmstarttime + "--" + str_gmendtime + ", \n          " + retrieved_filename])
+#                     else:
+#                         redirectionsiteuser_vs_jobs_dictionary[key_of_redirectionsiteuser].add(job+"(XROOTD hostname), "+ ConvertSetToString(LoginDisconnectionTimeAndSoOn[0])+"(GRATIA hostname), \n        " + localjobid+", "+str_gmstarttime + "--" + str_gmendtime + ", \n          "+retrieved_filename)
+#                         #for key, value in redirectionsite_vs_users_dictionary.iteritems():
+#                         #	print key
+#                         #    print value
+#                         #for key, value in redirectionsiteuser_vs_jobs_dictionary.iteritems():
+#                         #	print key
+#                         #	print value			                        
+#                     flag = 1
+#     return flag
+
+
+
 
 '''
 Covert a set to a printable string
@@ -1226,14 +1301,16 @@ for cmssrv32.fnal.gov (a redirection site)
 def PrintPossibleOverflowJobs():
     global outputmsg
     global redirectionsite_vs_users_dictionary
-    # which are localjobid, job start time GMT, job end date GMT, redirection file name
+    # which are redirectionsite, x509UserProxyVOName, 
+    # xrootd host name, gratia host name, 
+    # localjobid, job start time GMT, job end date GMT, redirection file name
     for key,value in redirectionsite_vs_users_dictionary.iteritems():
-        msg =  "for "+ key+":"
+        msg =  "\nfor "+ key+":"
         print msg
         msg = msg + "\n"
         outputmsg += msg
         for oneuser in set(value):
-            msg = "\n    for "+ oneuser+":"
+            msg = "    for "+ oneuser+":"
             print msg
             msg +="\n"
             outputmsg += msg
