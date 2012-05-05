@@ -320,8 +320,12 @@ def QueryOverflowJobsExitCode84(cursor, NumOverflowJobs, WallDurationOverflowJob
         WallDurationOverflowJobsExitCode84 = float(row[1])
     #print str(WallDurationOverflowJobsExitCode84)
 
-    # Compute the percentage of walltime of overflow jobs with exit code 84 OVER walltime of overflow jobs (in all sites) 
-    PercentageWallDurationOverflowJobsExitCode84 = float(100*WallDurationOverflowJobsExitCode84)/WallDurationOverflowJobs;     
+    if (WallDurationOverflowJobs==0):
+        PercentageWallDurationOverflowJobsExitCode84 = 0
+    else:
+        # Compute the percentage of walltime of overflow jobs with exit code 84 OVER walltime of overflow jobs (in all sites) 
+        PercentageWallDurationOverflowJobsExitCode84 = float(100*WallDurationOverflowJobsExitCode84)/WallDurationOverflowJobs;     
+
     #print str(PercentageWallDurationOverflowJobsExitCode84)+"%"
     return NumOverflowJobsExitCode84, WallDurationOverflowJobsExitCode84, PercentageNumOverflowJobsExitCode84, PercentageWallDurationOverflowJobsExitCode84
 
@@ -608,7 +612,10 @@ def QueryOverflowJobsExitCode84foursites(cursor, NumOverflowJobs4sites, WallDura
     row = cursor.fetchone()
     NumOverflowJobsExitCode84foursites = int(row[0])
     # Compute percentage of number of overflow jobs with exit code 84 OVER number of overflow jobs (in 4 sites)
-    PercentageOverflowJobsExitCode84foursites = float(100*NumOverflowJobsExitCode84foursites)/NumOverflowJobs4sites
+    if (NumOverflowJobs4sites == 0):
+        PercentageOverflowJobsExitCode84foursites = 0
+    else:
+        PercentageOverflowJobsExitCode84foursites = float(100*NumOverflowJobsExitCode84foursites)/NumOverflowJobs4sites
     #print str(PercentageOverflowJobsExitCode84foursites)+"%"
     if (NumOverflowJobsExitCode84foursites == 0):
         WallDurationOverflowJobsExitCode84foursites = 0
