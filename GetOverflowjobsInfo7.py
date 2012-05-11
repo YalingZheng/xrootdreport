@@ -4,7 +4,7 @@ Jan 2012
 Holland Computing Center, University of Nebraska-Lincoln 
 
 This script produces a xrootd report in the following format within the last 24 hours
-between yesterday 14:00:00 GMT and today 14:00:00 GMT
+between UCSD local time yesterday 06:00:00 and today 06:00:00
 
 All sites
 
