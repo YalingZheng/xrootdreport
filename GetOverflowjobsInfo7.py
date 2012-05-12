@@ -844,7 +844,7 @@ def FilterCondorJobsExitCode84(cursor):
     cursor.execute(querystring, (EarliestEndTime, LatestEndTime));
     # Handle each record
     numrows = int(cursor.rowcount)
-    msg =  "\nPossible Overflow Jobs with Exit Code 84 based on xrootd log\n"
+    msg =  "\nPossible Overflow Jobs with Exit Code 84 based on xrootd log"
     print msg
     msg = msg+"\n"
     global outputmsg
@@ -1033,7 +1033,6 @@ def CheckJobMatchInXrootdLog_FuzzyMatch(localjobid, commonname, host, starttime,
     hostnameitems = host.split(" ")
     # hostname from rcf-gratia
     hostname = hostnameitems[0]
-     
     # mktime assumes local time, but starttime is in UTC.
     # Use "utctimetuple" to force it to a timestamp *forcing no DST*, and
     # subtract off the timezone.  This procedure is DST-safe.
@@ -1073,6 +1072,7 @@ def CheckJobMatchInXrootdLog_FuzzyMatch(localjobid, commonname, host, starttime,
                         foundjob = job
     if (NUMBER_OF_FUZZY_MATCHES == 1):
         founduniquejobLoginDisconnectionTimeAndSoOn = jobLoginDisconnectionAndSoOnDictionary[foundjob]
+        founduniquejobLoginDisconnectionTimeAndSoOn[0] = Set([hostname])
         foundjob_filename = founduniquejobLoginDisconnectionTimeAndSoOn[3]
         foundjob_redirectionsite = founduniquejobLoginDisconnectionTimeAndSoOn[4]
         if (not foundjob_filename):
@@ -1089,10 +1089,11 @@ def CheckJobMatchInXrootdLog_FuzzyMatch(localjobid, commonname, host, starttime,
         str_gmstarttime = gmstarttime.strftime("%Y-%m-%d %H:%M:%S GMT")
         str_gmendtime = gmendtime.strftime("%Y-%m-%d %H:%M:%S GMT")
         foundjob_gratiahostname = founduniquejobLoginDisconnectionTimeAndSoOn[0]
+        jobLoginDisconnectionAndSoOnDictionary[job] = founduniquejobLoginDisconnectionTimeAndSoOn
         if (not redirectionsiteuser_vs_jobs_dictionary.get(key_of_redirectionsiteuser, None)):
-            redirectionsiteuser_vs_jobs_dictionary[key_of_redirectionsiteuser] = Set([foundjob+"(XROOTD hostname), "+ ConvertSetToString(foundjob_gratiahostname)+"(GRATIA hostname), \n        "+ localjobid+", "+str_gmstarttime + "--" + str_gmendtime + ", \n          " + retrieved_filename])
+            redirectionsiteuser_vs_jobs_dictionary[key_of_redirectionsiteuser] = Set([foundjob+"(XROOTD hostname), "+ ConvertSetToString(foundjob_gratiahostname)+"(GRATIA hostname), \n        "+ localjobid+", "+str_gmstarttime + "--" + str_gmendtime + ", \n          " + foundjob_filename])
         else:
-            redirectionsiteuser_vs_jobs_dictionary[key_of_redirectionsiteuser].add(foundjob+"(XROOTD hostname), "+ ConvertSetToString(foundjob_gratiahostname)+"(GRATIA hostname), \n        " + localjobid+", "+str_gmstarttime + "--" + str_gmendtime + ", \n          "+retrieved_filename)
+            redirectionsiteuser_vs_jobs_dictionary[key_of_redirectionsiteuser].add(foundjob+"(XROOTD hostname), "+ ConvertSetToString(foundjob_gratiahostname)+"(GRATIA hostname), \n        " + localjobid+", "+str_gmstarttime + "--" + str_gmendtime + ", \n          "+foundjob_filename)
     return NUMBER_OF_FUZZY_MATCHES
 
 # def CheckJobMatchInXrootdLog_FuzzyMatch(localjobid, commonname, host, starttime, endtime, gmstarttime, gmendtime):
