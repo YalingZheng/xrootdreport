@@ -935,10 +935,10 @@ def CheckJobMatchInXrootdLog_ExactMatch(localjobid, commonname, host, starttime,
                     jobLoginDisconnectionAndSoOnDictionary[job] = LoginDisconnectionTimeAndSoOn
         	    retrieved_filename = LoginDisconnectionTimeAndSoOn[3]
                     if (not retrieved_filename):
-                        retrieved_filename = "None"
+                        retrieved_filename = ""
                     retrieved_redirectionsite = LoginDisconnectionTimeAndSoOn[4]
                     if (not retrieved_redirectionsite):
-                        retrieved_redirectionsite = "None"
+                        retrieved_redirectionsite = "Jobs not redirected to any site"
                     if redirectionsite_vs_users_dictionary.get(retrieved_redirectionsite, None):
                         redirectionsite_vs_users_dictionary[retrieved_redirectionsite].add(commonname)
                     else:
@@ -1076,9 +1076,9 @@ def CheckJobMatchInXrootdLog_FuzzyMatch(localjobid, commonname, host, starttime,
         foundjob_filename = founduniquejobLoginDisconnectionTimeAndSoOn[3]
         foundjob_redirectionsite = founduniquejobLoginDisconnectionTimeAndSoOn[4]
         if (not foundjob_filename):
-            foundjob_filename = "None"
+            foundjob_filename = ""
         if (not foundjob_redirectionsite):
-            foundjob_redirectionsite = "None"
+            foundjob_redirectionsite = "Jobs not redirected to any site"
         # build the redirectionsite_vs_users_dictionary for output
         if redirectionsite_vs_users_dictionary.get(foundjob_redirectionsite, None):
             redirectionsite_vs_users_dictionary[foundjob_redirectionsite].add(commonname)
@@ -1313,6 +1313,8 @@ def PrintPossibleOverflowJobs():
     # xrootd host name, gratia host name, 
     # localjobid, job start time GMT, job end date GMT, redirection file name
     for key,value in redirectionsite_vs_users_dictionary.iteritems():
+        # if the key(redirection site) is 'None', we print out 
+        # "Jobs not redirected to any site"
         msg =  "\nfor "+ key+":"
         print msg
         msg = msg + "\n"
