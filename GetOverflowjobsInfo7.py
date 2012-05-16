@@ -1280,7 +1280,23 @@ def buildJobLoginDisconnectionAndSoOnDictionary(filename):
                         curjobLoginDisconnectionAndSoOn[3] = thisjobfilename
                         curjobLoginDisconnectionAndSoOn[4] = redirectionsite
                         jobLoginDisconnectionAndSoOnDictionary[jobid] = curjobLoginDisconnectionAndSoOn
-                
+                else:
+                    # 120514 11:01:47 29552 osg_cmsu.21234:3383@g19n27.hep.wisc.edu ofs_open: 0-644 fn=/store/user/spadhi/DoublePartonWWFastSim_CMSSW425PUv1/DoublePartonWWFastSim_CMSSW425PUv1/82f55a4338de93f4ae1b4d1c54da954e/reco_34_1_Nzg.root
+                    matchflagPureFilename = re.match("\d{6} \d{1,2}:\d{2}:\d{2} \d+ (\S+) ofs_open: \d+-\d+ fn=(\S+)\n", line)
+                    if matchflagPureFilename:
+                    # we try to
+                        jobid = matchflagPureFilename.group(1)
+                        thisjobfilename = matchflagPureFilename.group(2)
+                        if (not Is_Jobid_in_HostnameRemoveList(jobid)) and (not Is_Filename_In_RemoveList(thisjobfilename)):
+                            curjobLoginDisconnectionAndSoOn = jobLoginDisconnectionAndSoOnDictionary.get(jobid, None)
+                            if (not curjobLoginDisconnectionAndSoOn):
+                                curjobLoginDisconnectionAndSoOn = [None, None, None, None, None]
+                            # if this job id not yet has a file name (especially get information from previous REDIRECTS pattern
+                            if (not curjobLoginDisconnectionAndSoOn[3]):
+                                curjobLoginDisconnectionAndSoOn[3] = thisjobfilename
+                                jobLoginDisconnectionAndSoOnDictionary[jobid] = curjobLoginDisconnectionAndSoOn
+
+                    
     infile.close()
     # now, we show the dictonary
     #for key,value in jobLoginDisconnectionAndSoOnDictionary.iteritems():
