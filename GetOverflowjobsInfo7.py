@@ -10,7 +10,7 @@ All sites
 
 Overflow: 314: (1.77% wall 0.83%) Normal:17435
 Exit 0: 76.75% (vs 62.89%) wall 70.30%
-Exit 84: 0.32% (vs 0.52%) wall 0.02%
+Exit 84 or 85: 0.32% (vs 0.52%) wall 0.02%
 Efficiency: 77.02% (vs 85.27%)
 Eff  >80%: 62.74% (vs 54.38%)
 
@@ -18,17 +18,21 @@ Only UCSD+Nebraska+Wisconsin+Purdue
 
 Overflow: 314: (1.78% wall 0.83%) Normal:17355
 Exit 0: 76.75% (vs 62.74%) wall 70.30%
-Exit 84: 0.32% (vs 0.52%) wall 0.02%
+Exit 84 or 85: 0.32% (vs 0.52%) wall 0.02%
 Efficiency: 77.02% (vs 85.27%)
 Eff  >80%: 62.74% (vs 54.64%)
 
-Possible Overflow Jobs with Exit Code 84 based on xrootd log
+Possible Overflow Jobs with Exit Code 84 or 85 based on xrootd log
 
 for cmssrv32.fnal.gov:1094:
     for /CN=Nicholas S Eggert 114717:
         408235.127, 2012-04-05 20:03:15 GMT--2012-04-05 20:13:20 GMT,
           /store/mc/Fall11/WJetsToLNu_TuneZ2_7TeV-madgraph-tauola/AODSIM/PU_S6_START42_V14B-v1/0000/1EEE763D-1AF2-E011-8355-00304867D446.root
 
+'''
+
+'''
+For CMSSW_5_2_x, exit code 85 (8021 in the dashboard) indicates that the file open failed, the fallback was tried, and the fallback was tried, and the fallback also failed. Exit code 84 indicates the file open failed and no fallback was retried.
 '''
 
 import os
@@ -143,9 +147,9 @@ the percentage of walltime of overflow jobs OVER walltime of all jobs, the numbe
 (2) the percentage of number of overflow jobs with exit code 0 OVER number of overflow jobs, 
 the percentage of number of normal jobs with exit code 0 OVER number of normal jobs,
 the percentage of walltime of overflow jobs with exit code 0 OVER walltime of overflow jobs 
-(3) the percentage of number of overflow jobs with exit code 84 OVER number of overflow jobs, 
-the percentage of number of normal jobs with exit code 84 OVER number of normal jobs,
-the percentage of walltime of overflow jobs with exit code 84 OVER walltime of overflow jobs 
+(3) the percentage of number of overflow jobs with exit code 84 or 85 OVER number of overflow jobs, 
+the percentage of number of normal jobs with exit code 84 or 85 OVER number of normal jobs,
+the percentage of walltime of overflow jobs with exit code 84 or 85 OVER walltime of overflow jobs 
 (4) the efficiency of overflow jobs, which is equal to (CpuUserDuration+CpuSystemDuration)/WallDuration,
 the efficiency of normal jobs
 (5) the percentage of number of overflow jobs whose efficiency is greater than 80%, 
@@ -285,10 +289,10 @@ def QueryNormalJobsExitCode0(cursor, NumNormalJobs):
     #print str(PercentageExitCode0Normal) + "%"
     return NumNormalJobsExitCode0, PercentageExitCode0Normal
 
-def QueryOverflowJobsExitCode84(cursor, NumOverflowJobs, WallDurationOverflowJobs):
+def QueryOverflowJobsExitCode84or85(cursor, NumOverflowJobs, WallDurationOverflowJobs):
     global EarliestEndTime
     global LatestEndTime
-    # compute number of overflow jobs with exit code 84 (in all sites)
+    # compute number of overflow jobs with exit code 84 or 85 (in all sites)
     querystring = """
     SELECT
         COUNT(*), SUM(WallDuration)
@@ -297,42 +301,42 @@ def QueryOverflowJobsExitCode84(cursor, NumOverflowJobs, WallDurationOverflowJob
     join JobUsageRecord_Meta JURM on JURM.dbid=JUR.dbid
     where
       EndTime>=%s and EndTime<%s
-      AND RESC.value = 84
+      AND (RESC.value = 84 or RESC.value = 85)
       AND HostDescription like '%%-overflow'
       AND ResourceType="BatchPilot"
       AND JURM.ProbeName="condor:glidein-2.t2.ucsd.edu"
      """
     cursor.execute(querystring, (EarliestEndTime, LatestEndTime));
     row = cursor.fetchone()
-    NumOverflowJobsExitCode84 = int(row[0])
+    NumOverflowJobsExitCode84or85 = int(row[0])
 
-    # Compute the percentage of number of overflow jobs with exit code 84 OVER number of overflow jobs (in all sites)
+    # Compute the percentage of number of overflow jobs with exit code 84 or 85 OVER number of overflow jobs (in all sites)
     if (NumOverflowJobs==0):
-        PercentageNumOverflowJobsExitCode84 = 0
+        PercentageNumOverflowJobsExitCode84or85 = 0
     else:
-        PercentageNumOverflowJobsExitCode84 = float(100*NumOverflowJobsExitCode84)/NumOverflowJobs;
-    #print str(PercentageNumOverflowJobsExitCode84)+"%"
+        PercentageNumOverflowJobsExitCode84or85 = float(100*NumOverflowJobsExitCode84or85)/NumOverflowJobs;
+    #print str(PercentageNumOverflowJobsExitCode84or85)+"%"
 
     # compute walltime of overflow jobs with exit code 84 (in all sites)
-    if (NumOverflowJobsExitCode84==0):
-        WallDurationOverflowJobsExitCode84 = 0
+    if (NumOverflowJobsExitCode84or85==0):
+        WallDurationOverflowJobsExitCode84or85 = 0
     else:
-        WallDurationOverflowJobsExitCode84 = float(row[1])
-    #print str(WallDurationOverflowJobsExitCode84)
+        WallDurationOverflowJobsExitCode84or85 = float(row[1])
+    #print str(WallDurationOverflowJobsExitCode84or85)
 
     if (WallDurationOverflowJobs==0):
-        PercentageWallDurationOverflowJobsExitCode84 = 0
+        PercentageWallDurationOverflowJobsExitCode84or85 = 0
     else:
-        # Compute the percentage of walltime of overflow jobs with exit code 84 OVER walltime of overflow jobs (in all sites) 
-        PercentageWallDurationOverflowJobsExitCode84 = float(100*WallDurationOverflowJobsExitCode84)/WallDurationOverflowJobs;     
+        # Compute the percentage of walltime of overflow jobs with exit code 84 or 85 OVER walltime of overflow jobs (in all sites) 
+        PercentageWallDurationOverflowJobsExitCode84or85 = float(100*WallDurationOverflowJobsExitCode84or85)/WallDurationOverflowJobs;     
 
-    #print str(PercentageWallDurationOverflowJobsExitCode84)+"%"
-    return NumOverflowJobsExitCode84, WallDurationOverflowJobsExitCode84, PercentageNumOverflowJobsExitCode84, PercentageWallDurationOverflowJobsExitCode84
+    #print str(PercentageWallDurationOverflowJobsExitCode84or85)+"%"
+    return NumOverflowJobsExitCode84or85, WallDurationOverflowJobsExitCode84or85, PercentageNumOverflowJobsExitCode84or85, PercentageWallDurationOverflowJobsExitCode84or85
 
-def QueryNormalJobsExitCode84(cursor, NumNormalJobs):
+def QueryNormalJobsExitCode84or85(cursor, NumNormalJobs):
     global EarliestEndTime
     global LatestEndTime
-    # compute number of normal jobs with exit code 84 (in all sites)
+    # compute number of normal jobs with exit code 84 or 85 (in all sites)
     querystring = """
     SELECT
         COUNT(*)
@@ -341,22 +345,22 @@ def QueryNormalJobsExitCode84(cursor, NumNormalJobs):
     join JobUsageRecord_Meta JURM on JURM.dbid=JUR.dbid
     where
       EndTime>=%s and EndTime<%s
-      AND RESC.value = 84
+      AND (RESC.value = 84 or RESC.value = 85)
       AND HostDescription NOT like '%%-overflow'
       AND ResourceType="BatchPilot"
       AND JURM.ProbeName="condor:glidein-2.t2.ucsd.edu"
      """
     cursor.execute(querystring, (EarliestEndTime, LatestEndTime));
     row = cursor.fetchone()
-    NumNormalJobsExitCode84 = int(row[0])
+    NumNormalJobsExitCode84or85 = int(row[0])
 
-    # Compute the percentage of number of normal jobs with exit code 84 OVER number of normal jobs (in all sites) 
+    # Compute the percentage of number of normal jobs with exit code 84 or 85 OVER number of normal jobs (in all sites) 
     if (NumNormalJobs==0):
-        PercentageNumNormalJobsExitCode84 = 0
+        PercentageNumNormalJobsExitCode84or85 = 0
     else:
-        PercentageNumNormalJobsExitCode84 = float(100*NumNormalJobsExitCode84)/NumNormalJobs
-    #print str(PercentageNumNormalJobsExitCode84)+"%"
-    return NumNormalJobsExitCode84, PercentageNumNormalJobsExitCode84
+        PercentageNumNormalJobsExitCode84or85 = float(100*NumNormalJobsExitCode84or85)/NumNormalJobs
+    #print str(PercentageNumNormalJobsExitCode84or85)+"%"
+    return NumNormalJobsExitCode84or85, PercentageNumNormalJobsExitCode84or85
 
 def QueryOverflowJobsEfficiencyGT80(cursor, NumOverflowJobs):
     global EarliestEndTime
@@ -588,10 +592,10 @@ def QueryNormalJobsExitCode0foursites(cursor, NumNormalJobs4sites):
     #print str(PercentageNormalJobsExitCode0foursites)+"%"
     return NumNormalJobsExitCode0foursites, PercentageNormalJobsExitCode0foursites
 
-def QueryOverflowJobsExitCode84foursites(cursor, NumOverflowJobs4sites, WallDurationOverflowJobs4sites):
+def QueryOverflowJobsExitCode84or85foursites(cursor, NumOverflowJobs4sites, WallDurationOverflowJobs4sites):
     global EarliestEndTime
     global LatestEndTime
-    # Compute number of overflow jobs with exit code 84 (in 4 sites)
+    # Compute number of overflow jobs with exit code 84 or 85 (in 4 sites)
     querystring = """
     SELECT
         COUNT(*), SUM(WallDuration)
@@ -602,7 +606,7 @@ def QueryOverflowJobsExitCode84foursites(cursor, NumOverflowJobs4sites, WallDura
     JOIN Site S on (P.siteid = S.siteid)
     where
       EndTime>=%s and EndTime<%s
-      AND RESC.value = 84
+      AND (RESC.value = 84 or RESC.value = 85)
       AND HostDescription like '%%-overflow'
       AND ResourceType="BatchPilot"
       AND (HostDescription like '%%Nebraska%%' or HostDescription like '%%UCSD%%' or HostDescription like '%%Purdue%%' or HostDescription like '%%GLOW%%')
@@ -610,29 +614,29 @@ def QueryOverflowJobsExitCode84foursites(cursor, NumOverflowJobs4sites, WallDura
      """
     cursor.execute(querystring, (EarliestEndTime, LatestEndTime));
     row = cursor.fetchone()
-    NumOverflowJobsExitCode84foursites = int(row[0])
-    # Compute percentage of number of overflow jobs with exit code 84 OVER number of overflow jobs (in 4 sites)
+    NumOverflowJobsExitCode84or85foursites = int(row[0])
+    # Compute percentage of number of overflow jobs with exit code 84 or 85 OVER number of overflow jobs (in 4 sites)
     if (NumOverflowJobs4sites == 0):
-        PercentageOverflowJobsExitCode84foursites = 0
+        PercentageOverflowJobsExitCode84or85foursites = 0
     else:
-        PercentageOverflowJobsExitCode84foursites = float(100*NumOverflowJobsExitCode84foursites)/NumOverflowJobs4sites
-    #print str(PercentageOverflowJobsExitCode84foursites)+"%"
-    if (NumOverflowJobsExitCode84foursites == 0):
-        WallDurationOverflowJobsExitCode84foursites = 0
+        PercentageOverflowJobsExitCode84or85foursites = float(100*NumOverflowJobsExitCode84or85foursites)/NumOverflowJobs4sites
+    #print str(PercentageOverflowJobsExitCode84or85foursites)+"%"
+    if (NumOverflowJobsExitCode84or85foursites == 0):
+        WallDurationOverflowJobsExitCode84or85foursites = 0
     else:
-        WallDurationOverflowJobsExitCode84foursites = float(row[1])
-    # Compute the percentage of walltime of overflow jobs with exit code 84 OVER walltime of overflow jobs (in 4 sites) 
+        WallDurationOverflowJobsExitCode84or85foursites = float(row[1])
+    # Compute the percentage of walltime of overflow jobs with exit code 84 or 85 OVER walltime of overflow jobs (in 4 sites) 
     if (WallDurationOverflowJobs4sites == 0):
-        PercentageWallDurationOverflowJobsExitCode84foursites  = 0
+        PercentageWallDurationOverflowJobsExitCode84or85foursites  = 0
     else:
-        PercentageWallDurationOverflowJobsExitCode84foursites = float(100*WallDurationOverflowJobsExitCode84foursites)/WallDurationOverflowJobs4sites
-    #print str(PercentageWallDurationOverflowJobsExitCode84foursites)+"%"
-    return NumOverflowJobsExitCode84foursites, WallDurationOverflowJobsExitCode84foursites, PercentageOverflowJobsExitCode84foursites, PercentageWallDurationOverflowJobsExitCode84foursites 
+        PercentageWallDurationOverflowJobsExitCode84or85foursites = float(100*WallDurationOverflowJobsExitCode84or85foursites)/WallDurationOverflowJobs4sites
+    #print str(PercentageWallDurationOverflowJobsExitCode84or85foursites)+"%"
+    return NumOverflowJobsExitCode84or85foursites, WallDurationOverflowJobsExitCode84or85foursites, PercentageOverflowJobsExitCode84or85foursites, PercentageWallDurationOverflowJobsExitCode84or85foursites 
 
-def QueryNormalJobsExitCode84foursites(cursor, NumNormalJobs4sites): 
+def QueryNormalJobsExitCode84or85foursites(cursor, NumNormalJobs4sites): 
     global EarliestEndTime
     global LatestEndTime
-    # Compute number of normal jobs with exit code 84 (in 4 sites)
+    # Compute number of normal jobs with exit code 84 or 85 (in 4 sites)
     querystring = """
     SELECT
         COUNT(*)
@@ -643,7 +647,7 @@ def QueryNormalJobsExitCode84foursites(cursor, NumNormalJobs4sites):
     JOIN Site S on (P.siteid = S.siteid)
     where
       EndTime>=%s and EndTime<%s
-      AND RESC.value = 84
+      AND (RESC.value = 84 or RESC.value = 85)
       AND HostDescription NOT like '%%-overflow'
       AND ResourceType="BatchPilot"
       AND (HostDescription like '%%Nebraska%%' or HostDescription like '%%UCSD%%' or HostDescription like '%%Purdue%%' or HostDescription like '%%GLOW%%')
@@ -651,14 +655,14 @@ def QueryNormalJobsExitCode84foursites(cursor, NumNormalJobs4sites):
      """
     cursor.execute(querystring, (EarliestEndTime, LatestEndTime));
     row = cursor.fetchone()
-    NumNormalJobsExitCode84foursites = int(row[0])
-    # Compute percentage of number of normal jobs with exit code 84 OVER number of normal jobs (in 4 sites)
+    NumNormalJobsExitCode84or85foursites = int(row[0])
+    # Compute percentage of number of normal jobs with exit code 84 or 85 OVER number of normal jobs (in 4 sites)
     if (NumNormalJobs4sites == 0):
-        PercentageNormalJobsExitCode84foursites = 0
+        PercentageNormalJobsExitCode84or85foursites = 0
     else:
-        PercentageNormalJobsExitCode84foursites = float(100*NumNormalJobsExitCode84foursites)/NumNormalJobs4sites
-    #print str(PercentageNormalJobsExitCode84foursites)+"%"
-    return NumNormalJobsExitCode84foursites, PercentageNormalJobsExitCode84foursites
+        PercentageNormalJobsExitCode84or85foursites = float(100*NumNormalJobsExitCode84or85foursites)/NumNormalJobs4sites
+    #print str(PercentageNormalJobsExitCode84or85foursites)+"%"
+    return NumNormalJobsExitCode84or85foursites, PercentageNormalJobsExitCode84or85foursites
 
 def QueryOverflowJobsEfficiencyGT80foursites(cursor, NumOverflowJobs4sites):
     global EarliestEndTime
@@ -742,11 +746,11 @@ def QueryGratiaJobsAllSites(cursor):
         PercentageWallDurationOverflowJobs = float(WallDurationOverflowJobs*100)/WallDurationAllJobs;
     (NumOverflowJobsExitCode0, WallDurationOverflowJobsExitCode0, PercentageExitCode0Overflow, PercentageWallDurationOverflowJobsExitCode0) = QueryOverflowJobsExitCode0(cursor, NumOverflowJobs, WallDurationOverflowJobs)
     (NumNormalJobsExitCode0, PercentageExitCode0Normal) = QueryNormalJobsExitCode0(cursor, NumNormalJobs)
-    (NumOverflowJobsExitCode84, WallDurationOverflowJobsExitCode84, PercentageNumOverflowJobsExitCode84, PercentageWallDurationOverflowJobsExitCode84) = QueryOverflowJobsExitCode84(cursor, NumOverflowJobs, WallDurationOverflowJobs)
-    (NumNormalJobsExitCode84, PercentageNumNormalJobsExitCode84) = QueryNormalJobsExitCode84(cursor, NumNormalJobs)
+    (NumOverflowJobsExitCode84or85, WallDurationOverflowJobsExitCode84or85, PercentageNumOverflowJobsExitCode84or85, PercentageWallDurationOverflowJobsExitCode84or85) = QueryOverflowJobsExitCode84or85(cursor, NumOverflowJobs, WallDurationOverflowJobs)
+    (NumNormalJobsExitCode84or85, PercentageNumNormalJobsExitCode84or85) = QueryNormalJobsExitCode84or85(cursor, NumNormalJobs)
     (NumEfficiencyGT80percentoverflowJobs, PercentageEfficiencyGT80percentOverflowJobs) = QueryOverflowJobsEfficiencyGT80(cursor, NumOverflowJobs)
     (NumEfficiencyGT80percentNormalJobs, PercentageEfficiencyGT80percentNormalJobs) = QueryNormalJobsEfficiencyGT80(cursor, NumNormalJobs)
-    PrintStatisticsBasedOnQueryGratiaJobsAllSites(NumOverflowJobs, PercentageOverflowJobs, PercentageWallDurationOverflowJobs, NumNormalJobs, PercentageExitCode0Overflow, PercentageExitCode0Normal, PercentageWallDurationOverflowJobsExitCode0, PercentageNumOverflowJobsExitCode84, PercentageNumNormalJobsExitCode84, PercentageWallDurationOverflowJobsExitCode84, EfficiencyOverflowJobs, EfficiencyNormalJobs, PercentageEfficiencyGT80percentOverflowJobs, PercentageEfficiencyGT80percentNormalJobs)
+    PrintStatisticsBasedOnQueryGratiaJobsAllSites(NumOverflowJobs, PercentageOverflowJobs, PercentageWallDurationOverflowJobs, NumNormalJobs, PercentageExitCode0Overflow, PercentageExitCode0Normal, PercentageWallDurationOverflowJobsExitCode0, PercentageNumOverflowJobsExitCode84or85, PercentageNumNormalJobsExitCode84or85, PercentageWallDurationOverflowJobsExitCode84or85, EfficiencyOverflowJobs, EfficiencyNormalJobs, PercentageEfficiencyGT80percentOverflowJobs, PercentageEfficiencyGT80percentNormalJobs)
 
 def QueryGratiaJobs4sites(cursor):
     (NumAllJobs4sites, WallDurationAllJobs4sites) = QueryJobs4sites(cursor)
@@ -759,13 +763,13 @@ def QueryGratiaJobs4sites(cursor):
         PercentageOverflowJobs4sites = float(100*NumOverflowJobs4sites)/NumAllJobs4sites;
     (NumOverflowJobs4sites, WallDurationOverflowJobsExitCode0foursites, PercentageOverflowJobsExitCode0foursites, PercentageWallDurationOverflowJobsExitCode0foursites) = QueryOverflowJobsExitCode0foursites(cursor, NumOverflowJobs4sites, WallDurationOverflowJobs4sites)
     (NumNormalJobExitCode0foursites, PercentageNormalJobsExitCode0foursites) = QueryNormalJobsExitCode0foursites(cursor, NumNormalJobs4sites)
-    (NumOverflowJobsExitCode84foursites, WallDurationOverflowJobsExitCode84foursites, PercentageOverflowJobsExitCode84foursites, PercentageWallDurationOverflowJobsExitCode84foursites) = QueryOverflowJobsExitCode84foursites(cursor, NumOverflowJobs4sites, WallDurationOverflowJobs4sites) 
-    (NumNormalJobsExitCode84foursites, PercentageNormalJobsExitCode84foursites) = QueryNormalJobsExitCode84foursites(cursor, NumNormalJobs4sites)
+    (NumOverflowJobsExitCode84or85foursites, WallDurationOverflowJobsExitCode84or85foursites, PercentageOverflowJobsExitCode84or85foursites, PercentageWallDurationOverflowJobsExitCode84or85foursites) = QueryOverflowJobsExitCode84or85foursites(cursor, NumOverflowJobs4sites, WallDurationOverflowJobs4sites) 
+    (NumNormalJobsExitCode84or85foursites, PercentageNormalJobsExitCode84or85foursites) = QueryNormalJobsExitCode84or85foursites(cursor, NumNormalJobs4sites)
     (NumEfficiencyGT80percentOverflowJobs4sites, PercentageEfficiencyGT80percentOverflowJobs4sites) = QueryOverflowJobsEfficiencyGT80foursites(cursor, NumOverflowJobs4sites)
     (NumEfficiencyGT80percentNormalJobs4sites, PercentageEfficiencyGT80percentNormalJobs4sites) = QueryNormalJobsGT80percent4sites(cursor, NumNormalJobs4sites)
-    PrintStatisticsBasedOnQueryGratiaJobs4sites(NumOverflowJobs4sites, PercentageOverflowJobs4sites, PercentageWallDurationOverflowJobs4sites, NumNormalJobs4sites, PercentageOverflowJobsExitCode0foursites, PercentageNormalJobsExitCode0foursites, PercentageWallDurationOverflowJobsExitCode0foursites, PercentageOverflowJobsExitCode84foursites, PercentageWallDurationOverflowJobsExitCode84foursites, PercentageNormalJobsExitCode84foursites, EfficiencyOverflowJobs4sites, EfficiencyNormalJobs4sites, PercentageEfficiencyGT80percentOverflowJobs4sites, PercentageEfficiencyGT80percentNormalJobs4sites)
+    PrintStatisticsBasedOnQueryGratiaJobs4sites(NumOverflowJobs4sites, PercentageOverflowJobs4sites, PercentageWallDurationOverflowJobs4sites, NumNormalJobs4sites, PercentageOverflowJobsExitCode0foursites, PercentageNormalJobsExitCode0foursites, PercentageWallDurationOverflowJobsExitCode0foursites, PercentageOverflowJobsExitCode84or85foursites, PercentageWallDurationOverflowJobsExitCode84or85foursites, PercentageNormalJobsExitCode84or85foursites, EfficiencyOverflowJobs4sites, EfficiencyNormalJobs4sites, PercentageEfficiencyGT80percentOverflowJobs4sites, PercentageEfficiencyGT80percentNormalJobs4sites)
 
-def PrintStatisticsBasedOnQueryGratiaJobsAllSites(NumOverflowJobs, PercentageOverflowJobs, PercentageWallDurationOverflowJobs, NumNormalJobs, PercentageExitCode0Overflow, PercentageExitCode0Normal, PercentageWallDurationOverflowJobsExitCode0, PercentageNumOverflowJobsExitCode84, PercentageNumNormalJobsExitCode84, PercentageWallDurationOverflowJobsExitCode84, EfficiencyOverflowJobs, EfficiencyNormalJobs, PercentageEfficiencyGT80percentOverflowJobs, PercentageEfficiencyGT80percentNormalJobs):    
+def PrintStatisticsBasedOnQueryGratiaJobsAllSites(NumOverflowJobs, PercentageOverflowJobs, PercentageWallDurationOverflowJobs, NumNormalJobs, PercentageExitCode0Overflow, PercentageExitCode0Normal, PercentageWallDurationOverflowJobsExitCode0, PercentageNumOverflowJobsExitCode84or85, PercentageNumNormalJobsExitCode84or85, PercentageWallDurationOverflowJobsExitCode84or85, EfficiencyOverflowJobs, EfficiencyNormalJobs, PercentageEfficiencyGT80percentOverflowJobs, PercentageEfficiencyGT80percentNormalJobs):    
     global outputmsg
     # Print out the statistics 
     msg= "\nAll sites\n"
@@ -780,7 +784,7 @@ def PrintStatisticsBasedOnQueryGratiaJobsAllSites(NumOverflowJobs, PercentageOve
     print msg
     msg += "\n"
     outputmsg += msg
-    msg =  "Exit 84: %.2f%s (vs %.2f%s) wall %.2f%s" % (PercentageNumOverflowJobsExitCode84, "%", PercentageNumNormalJobsExitCode84,"%", PercentageWallDurationOverflowJobsExitCode84, "%")
+    msg =  "Exit 84 or 85: %.2f%s (vs %.2f%s) wall %.2f%s" % (PercentageNumOverflowJobsExitCode84or85, "%", PercentageNumNormalJobsExitCode84or85,"%", PercentageWallDurationOverflowJobsExitCode84or85, "%")
     print msg
     msg += "\n"
     outputmsg += msg
@@ -797,7 +801,7 @@ def PrintStatisticsBasedOnQueryGratiaJobsAllSites(NumOverflowJobs, PercentageOve
     msg += "\n"
     outputmsg += msg
 
-def PrintStatisticsBasedOnQueryGratiaJobs4sites(NumOverflowJobs4sites, PercentageOverflowJobs4sites, PercentageWallDurationOverflowJobs4sites, NumNormalJobs4sites, PercentageOverflowJobsExitCode0foursites, PercentageNormalJobsExitCode0foursites, PercentageWallDurationOverflowJobsExitCode0foursites, PercentageOverflowJobsExitCode84foursites, PercentageWallDurationOverflowJobsExitCode84foursites, PercentageNormalJobsExitCode84foursites, EfficiencyOverflowJobs4sites, EfficiencyNormalJobs4sites, PercentageEfficiencyGT80percentOverflowJobs4sites, PercentageEfficiencyGT80percentNormalJobs4sites):
+def PrintStatisticsBasedOnQueryGratiaJobs4sites(NumOverflowJobs4sites, PercentageOverflowJobs4sites, PercentageWallDurationOverflowJobs4sites, NumNormalJobs4sites, PercentageOverflowJobsExitCode0foursites, PercentageNormalJobsExitCode0foursites, PercentageWallDurationOverflowJobsExitCode0foursites, PercentageOverflowJobsExitCode84or85foursites, PercentageWallDurationOverflowJobsExitCode84or85foursites, PercentageNormalJobsExitCode84or85foursites, EfficiencyOverflowJobs4sites, EfficiencyNormalJobs4sites, PercentageEfficiencyGT80percentOverflowJobs4sites, PercentageEfficiencyGT80percentNormalJobs4sites):
     global outputmsg
     msg = "Overflow: %d: (%.2f%s wall %.2f%s) Normal:%d" % (NumOverflowJobs4sites, PercentageOverflowJobs4sites, "%", PercentageWallDurationOverflowJobs4sites, "%", NumNormalJobs4sites)
     print msg
@@ -807,7 +811,7 @@ def PrintStatisticsBasedOnQueryGratiaJobs4sites(NumOverflowJobs4sites, Percentag
     print msg
     msg += "\n"
     outputmsg += msg
-    msg = "Exit 84: %.2f%s (vs %.2f%s) wall %.2f%s" % (PercentageOverflowJobsExitCode84foursites, "%", PercentageNormalJobsExitCode84foursites, "%", PercentageWallDurationOverflowJobsExitCode84foursites, "%")
+    msg = "Exit 84 or 85: %.2f%s (vs %.2f%s) wall %.2f%s" % (PercentageOverflowJobsExitCode84or85foursites, "%", PercentageNormalJobsExitCode84or85foursites, "%", PercentageWallDurationOverflowJobsExitCode84or85foursites, "%")
     print msg
     msg += "\n"
     outputmsg += msg
@@ -821,15 +825,15 @@ def PrintStatisticsBasedOnQueryGratiaJobs4sites(NumOverflowJobs4sites, Percentag
     outputmsg += msg
 
 '''
-For each overflow job with exit code 84, we check possible correponding job in xrootd log
+For each overflow job with exit code 84 or 85, we check possible correponding job in xrootd log
 and output the job in the following format
 for cmssrv32.fnal.gov:1094:
     for /CN=Nicholas S Eggert 114717:
       408235.127, 2012-04-05 20:03:15 GMT--2012-04-05 20:13:20 GMT,
        /store/mc/Fall11/WJetsToLNu_TuneZ2_7TeV-madgraph-tauola/AODSIM/PU_S6_START42_V14B-v1/0000/1EEE763D-1AF2-E011-8355-00304867D446.root
 '''
-def FilterCondorJobsExitCode84(cursor):
-    # Find those overflow jobs whose exit code is 84 and resource type is BatchPilot 
+def FilterCondorJobsExitCode84or85(cursor):
+    # Find those overflow jobs whose exit code is 84 or 85 and resource type is BatchPilot 
     querystring = """
     SELECT JUR.dbid, LocalJobId, CommonName, Host, StartTime, EndTime
     from JobUsageRecord JUR
@@ -838,13 +842,13 @@ def FilterCondorJobsExitCode84(cursor):
     where 
       EndTime >= %s AND EndTime < %s
       AND ResourceType = "BatchPilot"
-      AND RESC.value = 84
+      AND (RESC.value = 84 or RESC.value = 85)
       AND HostDescription like '%%-overflow';
     """
     cursor.execute(querystring, (EarliestEndTime, LatestEndTime));
     # Handle each record
     numrows = int(cursor.rowcount)
-    msg =  "\nPossible Overflow Jobs with Exit Code 84 based on xrootd log"
+    msg =  "\nPossible Overflow Jobs with Exit Code 84 or 85 based on xrootd log"
     print msg
     msg = msg+"\n"
     global outputmsg
@@ -872,14 +876,14 @@ for the parameters,
 localjobid, commonname, host, starttime, endtime, gmstarttime, gmendtime
 are all a job's information read from rcf-gratia database.
 
-Below is the format of analysis of possible overflow xrootd jobs with exitcode 84 in the following format
+Below is the format of analysis of possible overflow xrootd jobs with exitcode 84 or 85 in the following format
 for cmssrv32.fnal.gov (a redirection site)
    for user .../.../CN=Brian (a x509UserProxyVOName)
      jobid matched-to-jobids-gratia 
      locajobid starttime endtime jobfilename 
 
 Brian and I guess the overflow jobs as follows. First, we search the
-gratia database the overflow jobs with exit code 84. Then, for each
+gratia database the overflow jobs with exit code 84 or 85. Then, for each
 such job J, we refer the xrootd.unl.edu log file, and find
 corresponding xrootd.unl.edu records by guessing: if xrootd log show
 that there is a job whose host machine matches this job's host
@@ -1003,13 +1007,13 @@ def Is_a_valid_hostname(hostname1):
     return None
 
 '''
-Below is the format of analysis of possible overflow xrootd jobs with exitcode 84 in the following format
+Below is the format of analysis of possible overflow xrootd jobs with exitcode 84 or 85 in the following format
 for cmssrv32.fnal.gov (a redirection site)
    for user .../.../CN=Brian (a x509UserProxyVOName)
       locajobid starttime endtime jobfilename 
 
 Brian and I guess the overflow jobs as follows. First, we search the
-gratia database the overflow jobs with exit code 84. Then, for each
+gratia database the overflow jobs with exit code 84 or 85. Then, for each
 such job J, we refer the xrootd.unl.edu log file, and find
 corresponding xrootd.unl.edu records by guessing: if xrootd log show
 that there is a job whose valid domain name (.org, .com, .edu, .gov)
@@ -1407,8 +1411,8 @@ def main():
         for filename in filenames:
             if (filename.find("xrootd.log")>=0):
                 buildJobLoginDisconnectionAndSoOnDictionary("/var/log/xrootd/"+filename)
-        # check with xrootd log, and output possible overflow jobs with exit code 84
-        FilterCondorJobsExitCode84(cursor)
+        # check with xrootd log, and output possible overflow jobs with exit code 84 or 85
+        FilterCondorJobsExitCode84or85(cursor)
         # disconnect the database
         db.close()
         PrintPossibleOverflowJobs()
