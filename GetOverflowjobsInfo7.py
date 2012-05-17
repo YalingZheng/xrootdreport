@@ -1375,7 +1375,7 @@ def SendEmail(ReportDateString, ReportSender, ReportReceiver):
     msg["From"] = "yzheng@cse.unl.edu"
     if ReportSender!=None:
         msg["From"] = ReportSender
-    msg["To"] = "yaling.zheng@gmail.com,bbockelm@cse.unl.edu"
+    msg["To"] = "yaling.zheng@gmail.com"
     body = MIMEText(outputmsg)
     msg.attach(body)
     if ReportReceiver!=None:
